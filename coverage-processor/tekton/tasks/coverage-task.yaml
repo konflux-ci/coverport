@@ -1,0 +1,242 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: coverage-task
+  namespace: coverage-processor
+  labels:
+    app: coverage
+    component: task
+spec:
+  params:
+  - name: coverage-artifact-ref
+    type: string
+    description: Full OCI image reference to coverage artifact
+  
+  steps:
+  # Step 1: Extract coverage artifact and metadata
+  - name: extract-coverage-artifact
+    image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
+    script: |
+      #!/bin/bash
+      set -e
+      
+      echo "=== Pulling coverage artifact with ORAS ==="
+      echo "Coverage artifact: $(params.coverage-artifact-ref)"
+      
+      mkdir -p /workspace/coverage-raw
+      cd /workspace/coverage-raw
+      oras pull $(params.coverage-artifact-ref)
+      
+      echo "=== Coverage artifact contents ==="
+      ls -la /workspace/coverage-raw/
+      
+      if [ ! -f /workspace/coverage-raw/metadata.json ]; then
+        echo "Error: metadata.json not found"
+        exit 1
+      fi
+      
+      echo "=== metadata.json ==="
+      cat /workspace/coverage-raw/metadata.json
+      
+      # Extract app image and save for next steps
+      APP_IMAGE=$(cat /workspace/coverage-raw/metadata.json | jq -r '.container.image')
+      echo "App image: $APP_IMAGE"
+      echo -n "$APP_IMAGE" > /workspace/app-image
+  
+  # Step 2: Extract git metadata from app image attestation
+  - name: extract-git-metadata
+    image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
+    script: |
+      #!/bin/bash
+      set -e
+      
+      APP_IMAGE=$(cat /workspace/app-image)
+      echo "=== Extracting Git metadata from: $APP_IMAGE ==="
+      
+      # Download attestation
+      cosign download attestation "$APP_IMAGE" > /workspace/attestation.json
+      
+      # Extract Konflux annotations
+      ANNOTATIONS=$(cat /workspace/attestation.json | \
+        jq -r '.payload | @base64d | fromjson | .predicate.buildConfig.tasks[0].invocation.environment.annotations')
+      
+      echo "=== Konflux annotations ==="
+      echo "$ANNOTATIONS" | jq .
+      
+      # Extract repo URL and commit SHA
+      REPO_URL=$(echo "$ANNOTATIONS" | jq -r '."pipelinesascode.tekton.dev/repo-url"')
+      COMMIT_SHA=$(echo "$ANNOTATIONS" | jq -r '."build.appstudio.redhat.com/commit_sha"')
+      
+      echo "Repo URL: $REPO_URL"
+      echo "Commit SHA: $COMMIT_SHA"
+      
+      if [ -z "$REPO_URL" ] || [ "$REPO_URL" = "null" ]; then
+        echo "Error: Could not extract repo URL"
+        exit 1
+      fi
+      
+      if [ -z "$COMMIT_SHA" ] || [ "$COMMIT_SHA" = "null" ]; then
+        echo "Error: Could not extract commit SHA"
+        exit 1
+      fi
+      
+      # Save for next steps
+      echo -n "$REPO_URL" > /workspace/repo-url
+      echo -n "$COMMIT_SHA" > /workspace/commit-sha
+  
+  # Step 3: Clone repository
+  - name: clone-repository
+    image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
+    script: |
+      #!/bin/bash
+      set -e
+      
+      REPO_URL=$(cat /workspace/repo-url)
+      COMMIT_SHA=$(cat /workspace/commit-sha)
+      
+      echo "=== Cloning repository ==="
+      echo "Repository: $REPO_URL"
+      echo "Commit: $COMMIT_SHA"
+      
+      cd /workspace
+      git clone "$REPO_URL" repo
+      cd repo
+      git checkout "$COMMIT_SHA"
+      
+      echo "=== Repository cloned ==="
+      ls -la
+      
+      if [ -f "go.mod" ]; then
+        echo "Go module: $(head -1 go.mod)"
+      fi
+  
+  # Step 4: Fetch SonarCloud token
+  - name: fetch-sonar-token
+    image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
+    script: |
+      #!/bin/bash
+      set -e
+      
+      echo "=== Fetching SonarCloud token ==="
+      
+      SONAR_TOKEN=$(oc get secret sonar-token -n coverage-processor \
+        -o jsonpath="{.data.SONAR_TOKEN}" | base64 -d)
+      
+      if [ -z "$SONAR_TOKEN" ]; then
+        echo "Error: SONAR_TOKEN not found in secret"
+        exit 1
+      fi
+      
+      SONAR_HOST=$(oc get secret sonar-token -n coverage-processor \
+        -o jsonpath="{.data.SONAR_HOST_URL}" | base64 -d 2>/dev/null) || echo "https://sonarcloud.io"
+      
+      echo "SonarCloud host: $SONAR_HOST"
+      echo -n "$SONAR_TOKEN" > /workspace/sonar-token
+      echo -n "$SONAR_HOST" > /workspace/sonar-host
+  
+  # Step 5: Process and convert coverage
+  - name: process-coverage
+    image: golang:1.21
+    script: |
+      #!/bin/bash
+      set -e
+      
+      echo "=== Processing Go coverage data ==="
+      
+      cd /workspace/repo
+      
+      # Set GOCOVERDIR to the raw coverage location
+      export GOCOVERDIR=/workspace/coverage-raw
+      
+      echo "Coverage directory: $GOCOVERDIR"
+      ls -la $GOCOVERDIR/
+      
+      # Convert binary coverage to text format
+      echo "Converting coverage to text format..."
+      go tool covdata textfmt -i=$GOCOVERDIR -o=/workspace/coverage.out
+      
+      if [ ! -f /workspace/coverage.out ]; then
+        echo "Error: Failed to generate coverage.out"
+        exit 1
+      fi
+      
+      echo "=== Coverage file generated ==="
+      ls -lh /workspace/coverage.out
+      
+      # Show coverage percentage
+      COVERAGE_PCT=$(go tool cover -func=/workspace/coverage.out | grep total: | awk '{print $3}')
+      echo "Total coverage: $COVERAGE_PCT"
+  
+  # Step 6: Upload to SonarCloud
+  - name: upload-to-sonarcloud
+    image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
+    env:
+    - name: SONAR_USER_HOME
+      value: /workspace/.sonar
+    script: |
+      #!/bin/bash
+      set -e
+      
+      echo "=== Uploading to SonarCloud ==="
+      
+      cd /workspace/repo
+      
+      SONAR_TOKEN=$(cat /workspace/sonar-token)
+      SONAR_HOST=$(cat /workspace/sonar-host)
+      COMMIT_SHA=$(cat /workspace/commit-sha)
+      
+      echo "SonarCloud host: $SONAR_HOST"
+      echo "Commit SHA: $COMMIT_SHA"
+      
+      # Check for sonar-project.properties
+      if [ ! -f "sonar-project.properties" ] && [ ! -f ".sonar-project.properties" ]; then
+        echo "Error: sonar-project.properties not found"
+        echo "Please add sonar-project.properties to your repository"
+        exit 1
+      fi
+      
+      # Extract project key
+      if [ -f "sonar-project.properties" ]; then
+        PROJECT_KEY=$(grep "sonar.projectKey" sonar-project.properties | cut -d'=' -f2 | tr -d ' ')
+      else
+        PROJECT_KEY=$(grep "sonar.projectKey" .sonar-project.properties | cut -d'=' -f2 | tr -d ' ')
+      fi
+      
+      if [ -z "$PROJECT_KEY" ]; then
+        echo "Error: Could not extract sonar.projectKey"
+        exit 1
+      fi
+      
+      echo "Project key: $PROJECT_KEY"
+      
+      # Download SonarScanner
+      SONAR_SCANNER_VERSION="5.0.1.3006"
+      echo "Downloading SonarScanner..."
+      curl -sSL -o /tmp/sonar-scanner.zip \
+        "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_SCANNER_VERSION}-linux.zip"
+      
+      cd /tmp
+      unzip -q sonar-scanner.zip
+      SCANNER_BIN="/tmp/sonar-scanner-${SONAR_SCANNER_VERSION}-linux/bin/sonar-scanner"
+      
+      cd /workspace/repo
+      
+      # Copy coverage file to repo directory
+      cp /workspace/coverage.out ./coverage.out
+      
+      echo "=== Running SonarScanner ==="
+      $SCANNER_BIN \
+        -Dsonar.host.url="$SONAR_HOST" \
+        -Dsonar.token="$SONAR_TOKEN" \
+        -Dsonar.projectKey="$PROJECT_KEY" \
+        -Dsonar.go.coverage.reportPaths=coverage.out \
+        -Dsonar.scm.revision="$COMMIT_SHA"
+      
+      echo "=== Coverage uploaded successfully ==="
+      echo "View results at: $SONAR_HOST/dashboard?id=$PROJECT_KEY"
+  
+  volumes:
+  - name: workspace
+    emptyDir: {}
+

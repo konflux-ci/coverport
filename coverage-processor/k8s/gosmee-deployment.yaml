@@ -1,0 +1,39 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gosmee-forwarder
+  namespace: coverage-processor
+  labels:
+    app: coverage
+    component: gosmee-forwarder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coverage
+      component: gosmee-forwarder
+  template:
+    metadata:
+      labels:
+        app: coverage
+        component: gosmee-forwarder
+    spec:
+      containers:
+      - name: gosmee
+        image: ghcr.io/chmouel/gosmee:latest
+        imagePullPolicy: Always
+        args:
+        - client
+        - __SMEE_CHANNEL_URL__
+        - http://el-coverage-listener.coverage-processor.svc.cluster.local:8080
+        env:
+        - name: GOSMEE_LOG_LEVEL
+          value: "info"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"

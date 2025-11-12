@@ -1,0 +1,47 @@
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: coverage-listener
+  namespace: coverage-processor
+  labels:
+    app: coverage
+    component: event-listener
+spec:
+  serviceAccountName: coverage-processor-sa
+  triggers:
+  - name: quay-push-trigger
+    interceptors:
+    - name: "extract-params"
+      ref:
+        name: "cel"
+      params:
+      - name: "overlays"
+        value:
+        - key: coverage_artifact_ref
+          expression: "has(body.repository) ? 'quay.io/' + body.repository + ':' + body.updated_tags[0] : (has(body.payload) ? 'quay.io/' + body.payload.repository + ':' + body.payload.updated_tags[0] : 'test-image')"
+    bindings:
+    - ref: coverage-trigger-binding
+    template:
+      ref: coverage-trigger-template
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: el-coverage-listener
+  namespace: coverage-processor
+  labels:
+    app: coverage
+    component: event-listener
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    eventlistener: coverage-listener
+
+
+

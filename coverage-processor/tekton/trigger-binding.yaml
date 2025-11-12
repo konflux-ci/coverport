@@ -1,0 +1,16 @@
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: coverage-trigger-binding
+  namespace: coverage-processor
+  labels:
+    app: coverage
+    component: trigger
+spec:
+  params:
+  - name: coverage-artifact-ref
+    value: $(extensions.coverage_artifact_ref)
+
+
+

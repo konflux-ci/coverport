@@ -1,0 +1,19 @@
+# Secrets and configuration
+config.env
+sonar-token.yaml
+
+# Temporary files
+*.tmp
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Kubernetes temp files
+*.yaml.bak
+
+# Test data
+example-coverage-artifact/

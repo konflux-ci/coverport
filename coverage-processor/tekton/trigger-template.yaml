@@ -1,0 +1,30 @@
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: coverage-trigger-template
+  namespace: coverage-processor
+  labels:
+    app: coverage
+    component: trigger
+spec:
+  params:
+  - name: coverage-artifact-ref
+    description: Full OCI image reference to coverage artifact
+  resourcetemplates:
+  - apiVersion: tekton.dev/v1beta1
+    kind: TaskRun
+    metadata:
+      generateName: coverage-run-
+      namespace: coverage-processor
+      labels:
+        app: coverage
+        component: task-run
+    spec:
+      serviceAccountName: coverage-processor-sa
+      taskRef:
+        name: coverage-task
+      params:
+      - name: coverage-artifact-ref
+        value: $(tt.params.coverage-artifact-ref)
+      timeout: "30m"

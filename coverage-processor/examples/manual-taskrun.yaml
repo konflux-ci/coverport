@@ -1,0 +1,36 @@
+---
+# Example: Manual TaskRun for testing the Coverage processor
+#
+# This TaskRun demonstrates how to manually trigger the coverage processing
+# without waiting for a webhook event. Useful for testing and debugging.
+#
+# Before running:
+#   1. Update the 'coverage-artifact-ref' parameter below with your artifact
+#   2. Ensure the sonar-token secret exists in the namespace
+#
+# Usage:
+#   oc apply -f examples/manual-taskrun.yaml
+#   tkn tr logs -f -n coverage-processor coverage-manual-test
+#
+apiVersion: tekton.dev/v1beta1
+kind: TaskRun
+metadata:
+  name: coverage-manual-test
+  namespace: coverage-processor
+  labels:
+    app: coverage
+    type: manual-test
+spec:
+  serviceAccountName: coverage-processor-sa
+  taskRef:
+    name: coverage-task
+  
+  params:
+  - name: coverage-artifact-ref
+    # ⚠️ REQUIRED: Replace with your actual coverage artifact reference
+    # Format: quay.io/<org>/<repo>:<tag>
+    # Example: quay.io/psturc/coverage-artifacts:e2e-coverage-20251110_0959
+    value: "__COVERAGE_ARTIFACT_REF__"
+  
+  # Optional: Set timeout (default is 1 hour)
+  timeout: "30m"

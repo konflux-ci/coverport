@@ -1,0 +1,18 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sonar-token
+  namespace: coverage-processor
+  labels:
+    app: coverage
+    component: processor
+type: Opaque
+stringData:
+  # SonarCloud token for all repositories
+  # Get your token from: https://sonarcloud.io/account/security
+  SONAR_TOKEN: "your-sonarcloud-token-here"
+  SONAR_HOST_URL: "https://sonarcloud.io"
+
+
+
