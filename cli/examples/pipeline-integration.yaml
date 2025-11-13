@@ -1,0 +1,92 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: integration-test-with-coverage
+spec:
+  params:
+    - name: SNAPSHOT
+      description: Application snapshot
+      type: string
+  
+  tasks:
+    # 1. Deploy application
+    - name: deploy-application
+      taskRef:
+        name: deploy-to-test-namespace
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+    
+    # 2. Run E2E tests
+    - name: run-e2e-tests
+      runAfter:
+        - deploy-application
+      taskRef:
+        name: e2e-test-suite
+      params:
+        - name: APP_URL
+          value: $(tasks.deploy-application.results.APP_URL)
+        - name: NAMESPACE
+          value: $(tasks.deploy-application.results.NAMESPACE)
+    
+    # 3. Collect coverage (runs even if tests fail)
+    - name: collect-coverage
+      runAfter:
+        - run-e2e-tests
+      taskSpec:
+        params:
+          - name: SNAPSHOT
+          - name: TEST_NAME
+        results:
+          - name: COVERAGE_ARTIFACT_REF
+        steps:
+          - name: collect
+            image: quay.io/myorg/coverport:latest
+            env:
+              - name: SNAPSHOT
+                value: $(params.SNAPSHOT)
+              - name: TEST_NAME
+                value: $(params.TEST_NAME)
+              - name: COVERAGE_ARTIFACT_REF_FILE
+                value: $(results.COVERAGE_ARTIFACT_REF.path)
+            script: |
+              #!/bin/sh
+              set -eux
+              
+              coverport collect \
+                --snapshot="$SNAPSHOT" \
+                --test-name="$TEST_NAME" \
+                --output=/workspace/coverage \
+                --push \
+                --registry=quay.io \
+                --repository=myorg/coverage-artifacts \
+                --tag="$TEST_NAME-$(date +%Y%m%d-%H%M%S)" \
+                --verbose
+              
+              echo "Coverage collection complete!"
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+        - name: TEST_NAME
+          value: $(context.pipelineRun.name)
+    
+    # 4. Process and report coverage (optional)
+    - name: report-coverage
+      runAfter:
+        - collect-coverage
+      taskRef:
+        name: sonarqube-scan
+      params:
+        - name: COVERAGE_ARTIFACT_REF
+          value: $(tasks.collect-coverage.results.COVERAGE_ARTIFACT_REF)
+    
+    # 5. Cleanup
+    - name: cleanup
+      runAfter:
+        - report-coverage
+      taskRef:
+        name: cleanup-test-namespace
+      params:
+        - name: NAMESPACE
+          value: $(tasks.deploy-application.results.NAMESPACE)
+

@@ -1,0 +1,35 @@
+{
+  "components": [
+    {
+      "name": "frontend",
+      "containerImage": "quay.io/myorg/frontend@sha256:1234567890abcdef",
+      "source": {
+        "git": {
+          "url": "https://github.com/myorg/frontend",
+          "revision": "main"
+        }
+      }
+    },
+    {
+      "name": "backend-api",
+      "containerImage": "quay.io/myorg/backend-api@sha256:abcdef1234567890",
+      "source": {
+        "git": {
+          "url": "https://github.com/myorg/backend",
+          "revision": "main"
+        }
+      }
+    },
+    {
+      "name": "worker",
+      "containerImage": "quay.io/myorg/worker@sha256:fedcba0987654321",
+      "source": {
+        "git": {
+          "url": "https://github.com/myorg/worker",
+          "revision": "main"
+        }
+      }
+    }
+  ]
+}
+

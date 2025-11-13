@@ -1,0 +1,91 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: collect-coverage
+  annotations:
+    description: |
+      Collects Go coverage data from deployed test applications using coverport CLI
+spec:
+  params:
+    - name: SNAPSHOT
+      description: Konflux snapshot containing component images
+      type: string
+    - name: TEST_NAME
+      description: Name of the test for identification
+      type: string
+      default: "e2e-tests"
+    - name: COVERAGE_PORT
+      description: Port where coverage server is listening
+      type: string
+      default: "9095"
+    - name: PUSH_ARTIFACT
+      description: Whether to push coverage artifact to registry
+      type: string
+      default: "true"
+    - name: REGISTRY
+      description: OCI registry for coverage artifacts
+      type: string
+      default: "quay.io"
+    - name: REPOSITORY
+      description: OCI repository for coverage artifacts
+      type: string
+      default: "myorg/coverage-artifacts"
+  
+  results:
+    - name: COVERAGE_ARTIFACT_REF
+      description: Reference to the pushed coverage artifact
+  
+  steps:
+    - name: collect-coverage
+      image: quay.io/myorg/coverport:latest
+      env:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+        - name: TEST_NAME
+          value: $(params.TEST_NAME)
+        - name: COVERAGE_PORT
+          value: $(params.COVERAGE_PORT)
+        - name: PUSH_ARTIFACT
+          value: $(params.PUSH_ARTIFACT)
+        - name: REGISTRY
+          value: $(params.REGISTRY)
+        - name: REPOSITORY
+          value: $(params.REPOSITORY)
+        - name: COVERAGE_ARTIFACT_REF_FILE
+          value: $(results.COVERAGE_ARTIFACT_REF.path)
+      script: |
+        #!/bin/sh
+        set -eux
+        
+        echo "🚀 Starting coverage collection..."
+        echo "Snapshot: $SNAPSHOT"
+        echo "Test Name: $TEST_NAME"
+        
+        # Build coverport command
+        CMD="coverport collect \
+          --snapshot=\"$SNAPSHOT\" \
+          --test-name=\"$TEST_NAME\" \
+          --port=\"$COVERAGE_PORT\" \
+          --output=/workspace/coverage-output \
+          --verbose"
+        
+        # Add push options if enabled
+        if [ "$PUSH_ARTIFACT" = "true" ]; then
+          TAG="coverage-${TEST_NAME}-$(date +%Y%m%d-%H%M%S)"
+          CMD="$CMD --push \
+            --registry=\"$REGISTRY\" \
+            --repository=\"$REPOSITORY\" \
+            --tag=\"$TAG\""
+        fi
+        
+        # Execute coverage collection
+        eval $CMD
+        
+        echo "✅ Coverage collection complete!"
+        
+        # Show artifact reference if available
+        if [ -f "$(results.COVERAGE_ARTIFACT_REF.path)" ]; then
+          ARTIFACT_REF=$(cat $(results.COVERAGE_ARTIFACT_REF.path))
+          echo "📦 Coverage artifact: $ARTIFACT_REF"
+        fi
+

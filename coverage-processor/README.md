@@ -278,7 +278,7 @@ Your coverage artifacts must be OCI images pushed to Quay.io containing:
 
 **How to create coverage artifacts:**
 
-See the [go-coverage-http](https://github.com/psturc/go-coverage-http) project for a complete example of:
+See the [go-coverage-http](https://github.com/konflux-ci/coverport) project for a complete example of:
 - Instrumenting Go applications with `-cover`
 - Collecting coverage from running containers
 - Packaging coverage as OCI artifacts
@@ -291,7 +291,7 @@ See the [go-coverage-http](https://github.com/psturc/go-coverage-http) project f
 **Input:**
 - Coverage Artifact: `quay.io/psturc/coverage-artifacts:e2e-coverage-20251110_0959`
 - App Image: `quay.io/redhat-user-workloads-stage/psturc-tenant/go-coverage-http:on-pr-b3f832...`
-- Repository: `https://github.com/psturc/go-coverage-http`
+- Repository: `https://github.com/konflux-ci/coverport`
 - Commit: `b3f832262d76372540118fc278dff1ae42edd6be`
 
 **Results:**
