@@ -1,0 +1,386 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/konflux-ci/coverport/cli/internal/git"
+	"github.com/konflux-ci/coverport/cli/internal/metadata"
+	"github.com/konflux-ci/coverport/cli/internal/processor"
+	"github.com/konflux-ci/coverport/cli/internal/upload"
+)
+
+var processCmd = &cobra.Command{
+	Use:   "process",
+	Short: "Process coverage data and upload to coverage services",
+	Long: `Process coverage data by:
+  1. Extracting coverage artifact from OCI registry (or using local directory)
+  2. Extracting git metadata from container image using cosign
+  3. Cloning the source repository at the specific commit
+  4. Converting and processing coverage data with proper path mapping
+  5. Uploading to Codecov (and optionally SonarQube)
+
+This command replaces the complex bash scripts in Tekton pipelines with a single,
+maintainable CLI command.`,
+	Example: `  # Process coverage from OCI artifact
+  coverport process \
+    --artifact-ref=quay.io/org/coverage:tag \
+    --image=quay.io/org/app@sha256:abc123 \
+    --codecov-token=$CODECOV_TOKEN
+
+  # Process from local directory
+  coverport process \
+    --coverage-dir=./coverage-output \
+    --image=quay.io/org/app@sha256:abc123 \
+    --codecov-token=$CODECOV_TOKEN \
+    --upload
+
+  # Process with custom options
+  coverport process \
+    --artifact-ref=quay.io/org/coverage:tag \
+    --image=quay.io/org/app@sha256:abc123 \
+    --workspace=/workspace \
+    --codecov-token=$CODECOV_TOKEN \
+    --codecov-flags=e2e,integration`,
+	Run: runProcess,
+}
+
+var (
+	// Input options
+	artifactRef string
+	coverageDir string
+	imageRef    string
+
+	// Workspace options
+	workspaceDir string
+	keepWorkspace bool
+
+	// Coverage processing options
+	coverageFormat string
+	coverageFilters []string
+
+	// Upload options
+	uploadCoverage   bool
+	codecovToken     string
+	codecovFlags     []string
+	codecovName      string
+
+	// Git options
+	repoURL    string
+	commitSHA  string
+	skipClone  bool
+	cloneDepth int
+)
+
+func init() {
+	rootCmd.AddCommand(processCmd)
+
+	// Input options
+	processCmd.Flags().StringVar(&artifactRef, "artifact-ref", "", "OCI artifact reference containing coverage data")
+	processCmd.Flags().StringVar(&coverageDir, "coverage-dir", "", "Local directory containing coverage data (alternative to --artifact-ref)")
+	processCmd.Flags().StringVar(&imageRef, "image", "", "Container image reference to extract git metadata from")
+
+	// Workspace options
+	processCmd.Flags().StringVar(&workspaceDir, "workspace", "", "Workspace directory (default: temp directory)")
+	processCmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Keep workspace directory after processing")
+
+	// Coverage processing options
+	processCmd.Flags().StringVar(&coverageFormat, "format", "auto", "Coverage format: go, python, nyc, auto")
+	processCmd.Flags().StringSliceVar(&coverageFilters, "filters", []string{"coverage_server.go", "*_test.go"}, "File patterns to exclude from coverage")
+
+	// Upload options
+	processCmd.Flags().BoolVar(&uploadCoverage, "upload", true, "Upload coverage to services (codecov, sonarqube)")
+	processCmd.Flags().StringVar(&codecovToken, "codecov-token", "", "Codecov upload token (can also use CODECOV_TOKEN env var)")
+	processCmd.Flags().StringSliceVar(&codecovFlags, "codecov-flags", []string{"e2e-tests"}, "Codecov flags")
+	processCmd.Flags().StringVar(&codecovName, "codecov-name", "", "Codecov upload name")
+
+	// Git options
+	processCmd.Flags().StringVar(&repoURL, "repo-url", "", "Git repository URL (optional, extracted from image if not provided)")
+	processCmd.Flags().StringVar(&commitSHA, "commit-sha", "", "Git commit SHA (optional, extracted from image if not provided)")
+	processCmd.Flags().BoolVar(&skipClone, "skip-clone", false, "Skip cloning the repository (use existing workspace)")
+	processCmd.Flags().IntVar(&cloneDepth, "clone-depth", 1, "Git clone depth (0 for full clone)")
+}
+
+func runProcess(cmd *cobra.Command, args []string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	verbose, _ := cmd.Flags().GetBool("verbose")
+
+	// Validate inputs
+	if artifactRef == "" && coverageDir == "" {
+		exitWithError("Either --artifact-ref or --coverage-dir must be specified")
+	}
+	if artifactRef != "" && coverageDir != "" {
+		exitWithError("Cannot specify both --artifact-ref and --coverage-dir")
+	}
+	if imageRef == "" && (repoURL == "" || commitSHA == "") {
+		exitWithError("Either --image must be specified, or both --repo-url and --commit-sha")
+	}
+
+	// Setup workspace
+	workspace, err := setupWorkspace(workspaceDir, keepWorkspace)
+	if err != nil {
+		exitWithError("Failed to setup workspace: %v", err)
+	}
+	if !keepWorkspace {
+		defer cleanupWorkspace(workspace)
+	}
+
+	fmt.Println("🚀 coverport - Coverage Processing Tool")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("Workspace:     %s\n", workspace)
+	fmt.Println(strings.Repeat("=", 60))
+
+	// Step 1: Get coverage data
+	var rawCoverageDir string
+	if artifactRef != "" {
+		rawCoverageDir, err = pullCoverageArtifact(ctx, artifactRef, workspace, verbose)
+		if err != nil {
+			exitWithError("Failed to pull coverage artifact: %v", err)
+		}
+	} else {
+		rawCoverageDir = coverageDir
+		printInfo("Using local coverage directory: %s", rawCoverageDir)
+	}
+
+	// Step 2: Extract git metadata
+	var gitMeta *metadata.GitMetadata
+	if repoURL != "" && commitSHA != "" {
+		// Use provided git information
+		gitMeta = &metadata.GitMetadata{
+			RepoURL:   repoURL,
+			CommitSHA: commitSHA,
+		}
+		printInfo("Using provided git metadata")
+	} else {
+		// Extract from image
+		gitMeta, err = extractGitMetadata(ctx, imageRef, verbose)
+		if err != nil {
+			exitWithError("Failed to extract git metadata: %v", err)
+		}
+	}
+
+	// Step 3: Clone repository
+	repoDir := filepath.Join(workspace, "repo")
+	if !skipClone {
+		if err := cloneRepository(ctx, gitMeta, repoDir, verbose); err != nil {
+			exitWithError("Failed to clone repository: %v", err)
+		}
+	} else {
+		printInfo("Skipping repository clone (using existing)")
+		if _, err := os.Stat(repoDir); err != nil {
+			exitWithError("Repository directory not found: %s", repoDir)
+		}
+	}
+
+	// Step 4: Process coverage
+	coverageFile := filepath.Join(workspace, "coverage.out")
+	if err := processCoverage(ctx, rawCoverageDir, coverageFile, repoDir, verbose); err != nil {
+		exitWithError("Failed to process coverage: %v", err)
+	}
+
+	// Step 5: Upload to services
+	if uploadCoverage {
+		// Get codecov token from flag or environment
+		token := codecovToken
+		if token == "" {
+			token = os.Getenv("CODECOV_TOKEN")
+		}
+
+		if token == "" {
+			printWarning("CODECOV_TOKEN not provided, skipping upload")
+			printInfo("Set --codecov-token or CODECOV_TOKEN environment variable to enable upload")
+		} else {
+			if err := uploadToCodecov(ctx, token, coverageFile, gitMeta, verbose); err != nil {
+				printWarning("Failed to upload to Codecov: %v", err)
+			}
+		}
+
+		// TODO: Add SonarQube upload support
+	}
+
+	fmt.Println("\n✅ Coverage processing complete!")
+	if keepWorkspace {
+		fmt.Printf("📁 Workspace saved at: %s\n", workspace)
+	}
+}
+
+// setupWorkspace creates or uses the specified workspace directory
+func setupWorkspace(dir string, keep bool) (string, error) {
+	if dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", err
+		}
+		return dir, nil
+	}
+
+	// Create temp directory
+	tempDir, err := os.MkdirTemp("", "coverport-process-*")
+	if err != nil {
+		return "", err
+	}
+
+	return tempDir, nil
+}
+
+// cleanupWorkspace removes the workspace directory
+func cleanupWorkspace(dir string) {
+	if err := os.RemoveAll(dir); err != nil {
+		printWarning("Failed to cleanup workspace: %v", err)
+	}
+}
+
+// pullCoverageArtifact pulls coverage artifact from OCI registry using oras
+func pullCoverageArtifact(ctx context.Context, artifactRef, workspace string, verbose bool) (string, error) {
+	fmt.Printf("📦 Pulling coverage artifact: %s\n", artifactRef)
+
+	// Check if oras is available
+	orasPath, err := exec.LookPath("oras")
+	if err != nil {
+		return "", fmt.Errorf("oras not found in PATH (required for pulling OCI artifacts): %w", err)
+	}
+
+	// Create coverage directory
+	coverageDir := filepath.Join(workspace, "coverage-raw")
+	if err := os.MkdirAll(coverageDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create coverage directory: %w", err)
+	}
+
+	// Pull artifact
+	cmd := exec.CommandContext(ctx, orasPath, "pull", artifactRef)
+	cmd.Dir = coverageDir
+	if verbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("oras pull failed: %w", err)
+	}
+
+	// Verify metadata.json exists
+	metadataPath := filepath.Join(coverageDir, "metadata.json")
+	if _, err := os.Stat(metadataPath); err != nil {
+		return "", fmt.Errorf("metadata.json not found in artifact")
+	}
+
+	if verbose {
+		fmt.Println("📄 Artifact contents:")
+		entries, _ := os.ReadDir(coverageDir)
+		for _, entry := range entries {
+			fmt.Printf("   - %s\n", entry.Name())
+		}
+	}
+
+	printSuccess("Coverage artifact pulled successfully")
+	return coverageDir, nil
+}
+
+// extractGitMetadata extracts git metadata from container image
+func extractGitMetadata(ctx context.Context, image string, verbose bool) (*metadata.GitMetadata, error) {
+	extractor, err := metadata.NewImageMetadataExtractor()
+	if err != nil {
+		return nil, err
+	}
+
+	return extractor.ExtractGitMetadata(ctx, image)
+}
+
+// cloneRepository clones the git repository
+func cloneRepository(ctx context.Context, gitMeta *metadata.GitMetadata, targetDir string, verbose bool) error {
+	cloner, err := git.NewRepositoryCloner()
+	if err != nil {
+		return err
+	}
+
+	opts := git.CloneOptions{
+		RepoURL:   gitMeta.RepoURL,
+		CommitSHA: gitMeta.CommitSHA,
+		Branch:    gitMeta.Branch,
+		TargetDir: targetDir,
+		Depth:     cloneDepth,
+	}
+
+	return cloner.Clone(ctx, opts)
+}
+
+// processCoverage processes the coverage data
+func processCoverage(ctx context.Context, inputDir, outputFile, repoRoot string, verbose bool) error {
+	// Detect or use specified format
+	var format processor.CoverageFormat
+	switch coverageFormat {
+	case "go":
+		format = processor.FormatGo
+	case "python":
+		format = processor.FormatPython
+	case "nyc":
+		format = processor.FormatNYC
+	case "auto":
+		format = processor.FormatAuto
+	default:
+		return fmt.Errorf("unsupported coverage format: %s", coverageFormat)
+	}
+
+	proc := processor.NewCoverageProcessor(format)
+	
+	opts := processor.ProcessOptions{
+		Format:     format,
+		InputDir:   inputDir,
+		OutputFile: outputFile,
+		RepoRoot:   repoRoot,
+		Filters:    coverageFilters,
+	}
+
+	return proc.Process(ctx, opts)
+}
+
+// uploadToCodecov uploads coverage to Codecov
+func uploadToCodecov(ctx context.Context, token, coverageFile string, gitMeta *metadata.GitMetadata, verbose bool) error {
+	uploader, err := upload.NewCodecovUploader(token)
+	if err != nil {
+		return err
+	}
+	defer uploader.Cleanup()
+
+	// Determine repo root (parent of coverage file)
+	repoRoot := filepath.Dir(filepath.Dir(coverageFile))
+
+	opts := upload.CodecovOptions{
+		Token:        token,
+		CommitSHA:    gitMeta.CommitSHA,
+		Branch:       gitMeta.Branch,
+		RepoRoot:     repoRoot,
+		CoverageFile: coverageFile,
+		Flags:        codecovFlags,
+		Name:         codecovName,
+		Verbose:      verbose,
+	}
+
+	return uploader.Upload(ctx, opts)
+}
+
+// Helper to read metadata from artifact
+func readArtifactMetadata(artifactDir string) (map[string]interface{}, error) {
+	metadataPath := filepath.Join(artifactDir, "metadata.json")
+	data, err := os.ReadFile(metadataPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return nil, err
+	}
+
+	return metadata, nil
+}
+

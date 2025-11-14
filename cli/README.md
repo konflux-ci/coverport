@@ -1,6 +1,6 @@
-# coverport - Coverage Collection Tool for Konflux Pipelines
+# coverport - Universal Coverage Tool for Konflux Pipelines
 
-`coverport` is a CLI tool designed for collecting Go coverage data from instrumented applications running in Kubernetes, specifically tailored for Konflux/Tekton integration pipelines.
+`coverport` is a comprehensive CLI tool for collecting, processing, and uploading coverage data from instrumented applications running in Kubernetes. It's specifically designed for Konflux/Tekton integration pipelines and replaces complex bash scripts with simple, maintainable commands.
 
 ## Features
 
@@ -11,6 +11,9 @@
 - **🗂️ Organized Output**: Coverage data organized by component for easy analysis
 - **🚀 OCI Registry Push**: Push coverage artifacts directly to container registries
 - **🔧 Flexible Discovery**: Support for label selectors, image refs, and explicit pod names
+- **🔐 Git Metadata Extraction**: Extract repository information from container images using cosign
+- **📤 Codecov Integration**: Direct upload to Codecov with proper commit mapping
+- **🌍 Multi-Language Support**: Go (current), Python, and Node.js (NYC) - coming soon
 
 ## Installation
 
@@ -65,7 +68,7 @@ coverport discover --snapshot="$SNAPSHOT"
 
 ### `coverport collect`
 
-Collect coverage data from Kubernetes pods.
+Collect raw coverage data from Kubernetes pods.
 
 **Discovery Methods** (choose one):
 
@@ -106,6 +109,73 @@ Collect coverage data from Kubernetes pods.
 - `--namespace`, `-n` - Kubernetes namespace (empty = search all)
 - `--verbose` - Enable verbose output
 
+### `coverport process`
+
+Process coverage data and upload to coverage services. This command:
+1. Extracts coverage artifact from OCI registry (or uses local directory)
+2. Extracts git metadata from container image using cosign
+3. Clones the source repository at the specific commit
+4. Converts and processes coverage data with proper path mapping
+5. Uploads to Codecov (and optionally SonarQube)
+
+This single command replaces 5+ complex bash script steps in Tekton pipelines!
+
+**Input Options:**
+
+- `--artifact-ref` - OCI artifact reference containing coverage data
+- `--coverage-dir` - Local directory containing coverage data (alternative to --artifact-ref)
+- `--image` - Container image reference to extract git metadata from
+
+**Workspace Options:**
+
+- `--workspace` - Workspace directory (default: temp directory)
+- `--keep-workspace` - Keep workspace directory after processing
+
+**Coverage Processing Options:**
+
+- `--format` - Coverage format: go, python, nyc, auto (default: auto)
+- `--filters` - File patterns to exclude from coverage
+
+**Upload Options:**
+
+- `--upload` - Upload coverage to services (default: true)
+- `--codecov-token` - Codecov upload token (or use CODECOV_TOKEN env var)
+- `--codecov-flags` - Codecov flags (default: e2e-tests)
+- `--codecov-name` - Codecov upload name
+
+**Git Options:**
+
+- `--repo-url` - Git repository URL (optional, extracted from image if not provided)
+- `--commit-sha` - Git commit SHA (optional, extracted from image if not provided)
+- `--skip-clone` - Skip cloning the repository
+- `--clone-depth` - Git clone depth (default: 1, 0 for full clone)
+
+**Examples:**
+
+```bash
+# Process coverage from OCI artifact
+coverport process \
+  --artifact-ref=quay.io/org/coverage:tag \
+  --image=quay.io/org/app@sha256:abc123 \
+  --codecov-token=$CODECOV_TOKEN
+
+# Process from local directory with custom options
+coverport process \
+  --coverage-dir=./coverage-output/myapp/test-123 \
+  --image=quay.io/org/app@sha256:abc123 \
+  --codecov-token=$CODECOV_TOKEN \
+  --codecov-flags=e2e,integration \
+  --workspace=/workspace/process \
+  --keep-workspace
+
+# Process with manual git metadata (no cosign needed)
+coverport process \
+  --artifact-ref=quay.io/org/coverage:tag \
+  --repo-url=https://github.com/org/repo \
+  --commit-sha=abc123def456 \
+  --codecov-token=$CODECOV_TOKEN
+```
+
 ### `coverport discover`
 
 Discover pods without collecting coverage (useful for debugging).
@@ -118,7 +188,38 @@ coverport discover --namespace=default --label-selector=app=myapp
 
 ## Usage Examples
 
-### Example 1: Konflux Pipeline Integration
+### Example 1: Complete Konflux Pipeline Workflow
+
+The typical workflow in a Konflux pipeline consists of two steps:
+
+**Step 1: Collect Coverage**
+```bash
+# After running tests, collect coverage from deployed pods
+coverport collect \
+  --snapshot="$SNAPSHOT" \
+  --namespace="$TEST_NAMESPACE" \
+  --test-name="e2e-$(date +%Y%m%d-%H%M%S)" \
+  --output=/workspace/coverage \
+  --push \
+  --registry=quay.io \
+  --repository=myorg/coverage-artifacts
+```
+
+**Step 2: Process and Upload**
+```bash
+# Process the coverage artifact and upload to Codecov
+# This replaces 5+ bash script steps with one command!
+coverport process \
+  --artifact-ref="$COVERAGE_ARTIFACT_REF" \
+  --image="$COMPONENT_IMAGE" \
+  --codecov-token="$CODECOV_TOKEN" \
+  --codecov-flags=e2e-tests \
+  --workspace=/workspace/process
+```
+
+See `examples/simplified-pipeline.yaml` for a complete pipeline example.
+
+### Example 2: Traditional Pipeline (collect only)
 
 Add this task to your Tekton pipeline after running tests:
 
@@ -154,7 +255,7 @@ Add this task to your Tekton pipeline after running tests:
           echo "Coverage collection complete!"
 ```
 
-### Example 2: Multi-Component Collection
+### Example 3: Multi-Component Collection
 
 When your snapshot contains multiple components:
 

@@ -1,0 +1,44 @@
+# Build artifacts
+coverport
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+coverage-output/
+*.log
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed in container)
+*.md
+ARCHITECTURE.md
+PROJECT_SUMMARY.md
+QUICKSTART.md
+CHANGELOG_*.md
+
+# Examples (not needed in container)
+examples/
+
+# Git
+.git/
+.gitignore
+

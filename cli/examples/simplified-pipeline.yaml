@@ -1,0 +1,164 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: go-coverage-http-e2e-simplified
+spec:
+  description: |
+    Simplified integration test pipeline using coverport CLI.
+    This replaces complex bash scripts with simple coverport commands.
+  params:
+    - description: Snapshot of the application
+      name: SNAPSHOT
+      type: string
+  tasks:
+    - name: test-metadata
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+        - name: test-name
+          value: $(context.pipelineRun.name)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/tekton-integration-catalog.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/test-metadata/0.1/test-metadata.yaml
+    
+    - name: deploy
+      runAfter:
+        - test-metadata
+      taskSpec:
+        results:
+          - name: NAMESPACE
+          - name: APP_URL
+        steps:
+          - name: deploy-application
+            image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
+            env:
+              - name: SNAPSHOT
+                value: $(params.SNAPSHOT)
+              - name: OC_LOGIN_COMMAND
+                valueFrom:
+                  secretKeyRef:
+                    name: integration-pipeline-credentials
+                    key: oc-login-command
+            script: |
+              #!/bin/sh
+              set -eux
+              
+              # (deployment logic same as before)
+              # ...
+
+    - name: run-e2e-tests-and-collect-coverage
+      runAfter:
+        - deploy
+      taskSpec:
+        results:
+          - name: COVERAGE_ARTIFACT_REF
+        steps:
+          - name: run-tests-and-collect
+            image: quay.io/konflux-ci/coverport:latest
+            env:
+              - name: SNAPSHOT
+                value: $(params.SNAPSHOT)
+              - name: APP_NAMESPACE
+                value: $(tasks.deploy.results.NAMESPACE)
+              - name: OC_LOGIN_COMMAND
+                valueFrom:
+                  secretKeyRef:
+                    name: integration-pipeline-credentials
+                    key: oc-login-command
+            script: |
+              #!/bin/sh
+              set -eux
+              
+              # Login to cluster
+              eval $OC_LOGIN_COMMAND
+              
+              # Run tests (your test suite here)
+              echo "Running E2E tests..."
+              # ... run your tests ...
+              
+              # Collect coverage using coverport
+              coverport collect \
+                --snapshot="$SNAPSHOT" \
+                --namespace="$APP_NAMESPACE" \
+                --test-name="e2e-$(date +%Y%m%d-%H%M%S)" \
+                --output=/workspace/coverage \
+                --push \
+                --registry=quay.io \
+                --repository=myorg/coverage-artifacts \
+                --verbose
+              
+              # Save artifact reference for next task
+              if [ -f /workspace/coverage-artifact-ref.txt ]; then
+                cat /workspace/coverage-artifact-ref.txt > /tekton/results/COVERAGE_ARTIFACT_REF
+              else
+                echo "not-available" > /tekton/results/COVERAGE_ARTIFACT_REF
+              fi
+
+    - name: process-and-upload-coverage
+      runAfter:
+        - run-e2e-tests-and-collect-coverage
+      taskSpec:
+        steps:
+          - name: process-coverage
+            image: quay.io/konflux-ci/coverport:latest
+            env:
+              - name: COVERAGE_ARTIFACT_REF
+                value: $(tasks.run-e2e-tests-and-collect-coverage.results.COVERAGE_ARTIFACT_REF)
+              - name: CODECOV_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: integration-pipeline-credentials
+                    key: codecov-token
+              - name: SNAPSHOT
+                value: $(params.SNAPSHOT)
+            script: |
+              #!/bin/sh
+              set -eux
+              
+              if [ "$COVERAGE_ARTIFACT_REF" = "not-available" ]; then
+                echo "⚠️  No coverage artifact available, skipping"
+                exit 0
+              fi
+              
+              # Extract component image from snapshot
+              COMPONENT_IMAGE=$(echo "$SNAPSHOT" | jq -r '.components[0].containerImage')
+              
+              # Process coverage with a single command!
+              # This replaces 5 complex bash script steps with one command
+              coverport process \
+                --artifact-ref="$COVERAGE_ARTIFACT_REF" \
+                --image="$COMPONENT_IMAGE" \
+                --codecov-token="$CODECOV_TOKEN" \
+                --codecov-flags=e2e-tests \
+                --workspace=/workspace/process \
+                --verbose
+              
+              echo "✅ Coverage processed and uploaded!"
+
+    - name: cleanup
+      runAfter:
+        - process-and-upload-coverage
+      taskSpec:
+        steps:
+          - name: cleanup-namespace
+            image: quay.io/konflux-ci/tekton-integration-catalog/utils:latest
+            env:
+              - name: APP_NAMESPACE
+                value: $(tasks.deploy.results.NAMESPACE)
+              - name: OC_LOGIN_COMMAND
+                valueFrom:
+                  secretKeyRef:
+                    name: integration-pipeline-credentials
+                    key: oc-login-command
+            script: |
+              #!/bin/sh
+              set -eux
+              eval $OC_LOGIN_COMMAND
+              oc delete namespace $APP_NAMESPACE --wait=false || true
+
