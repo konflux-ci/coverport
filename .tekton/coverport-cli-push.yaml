@@ -24,7 +24,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/rh-konflux-devprod-tenant/coverport-cli:{{revision}}
+    value: quay.io/konflux-ci/konflux-devprod/coverport-cli:{{revision}}
   - name: dockerfile
     value: Dockerfile
   - name: path-context
