@@ -18,6 +18,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o coverport main.go
 # Runtime image - using UBI9 minimal with necessary tools
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
+LABEL konflux.additional-tags="latest"
+
 # Install required dependencies for coverport process command
 # Note: curl-minimal is already installed in ubi9-minimal
 RUN microdnf install -y \
