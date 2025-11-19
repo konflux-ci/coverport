@@ -70,6 +70,7 @@ var (
 	codecovToken   string
 	codecovFlags   []string
 	codecovName    string
+	codecovPR      string
 
 	// Git options
 	repoURL    string
@@ -100,6 +101,7 @@ func init() {
 	processCmd.Flags().StringVar(&codecovToken, "codecov-token", "", "Codecov upload token (can also use CODECOV_TOKEN env var)")
 	processCmd.Flags().StringSliceVar(&codecovFlags, "codecov-flags", []string{"e2e-tests"}, "Codecov flags")
 	processCmd.Flags().StringVar(&codecovName, "codecov-name", "", "Codecov upload name")
+	processCmd.Flags().StringVar(&codecovPR, "codecov-pr", "", "Pull request number for Codecov (auto-detected from image metadata if not provided)")
 
 	// Git options
 	processCmd.Flags().StringVar(&repoURL, "repo-url", "", "Git repository URL (optional, extracted from image if not provided)")
@@ -522,10 +524,18 @@ func uploadToCodecov(ctx context.Context, token, coverageFile string, gitMeta *m
 	repoSlug := extractRepoSlug(gitMeta.RepoURL)
 	gitService := extractGitService(gitMeta.RepoURL)
 
+	// Use PR number from metadata if not explicitly provided via flag
+	prNumber := codecovPR
+	if prNumber == "" && gitMeta.PullRequest != "" {
+		prNumber = gitMeta.PullRequest
+		fmt.Printf("   🔗 Detected Pull Request: #%s\n", prNumber)
+	}
+
 	opts := upload.CodecovOptions{
 		Token:        token,
 		CommitSHA:    gitMeta.CommitSHA,
 		Branch:       gitMeta.Branch,
+		PullRequest:  prNumber,
 		RepoRoot:     repoRoot,
 		RepoSlug:     repoSlug,
 		GitService:   gitService,

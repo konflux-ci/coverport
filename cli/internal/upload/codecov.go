@@ -20,16 +20,17 @@ type CodecovUploader struct {
 
 // CodecovOptions contains options for uploading to Codecov
 type CodecovOptions struct {
-	Token       string
-	CommitSHA   string
-	Branch      string
-	RepoRoot    string
-	RepoSlug    string // Repository slug (e.g., "owner/repo")
-	GitService  string // Git service: github, gitlab, bitbucket, etc.
+	Token        string
+	CommitSHA    string
+	Branch       string
+	PullRequest  string // PR number (e.g., "123") - helps Codecov associate coverage with PRs
+	RepoRoot     string
+	RepoSlug     string // Repository slug (e.g., "owner/repo")
+	GitService   string // Git service: github, gitlab, bitbucket, etc.
 	CoverageFile string
-	Flags       []string
-	Name        string
-	Verbose     bool
+	Flags        []string
+	Name         string
+	Verbose      bool
 }
 
 // NewCodecovUploader creates a new Codecov uploader
@@ -158,6 +159,10 @@ func (u *CodecovUploader) Upload(ctx context.Context, opts CodecovOptions) error
 	// Add optional parameters
 	if opts.Branch != "" {
 		args = append(args, "--branch", opts.Branch)
+	}
+
+	if opts.PullRequest != "" {
+		args = append(args, "--pr", opts.PullRequest)
 	}
 
 	for _, flag := range opts.Flags {

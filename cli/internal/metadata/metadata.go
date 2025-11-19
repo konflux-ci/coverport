@@ -10,10 +10,11 @@ import (
 
 // GitMetadata contains git information extracted from container image attestation
 type GitMetadata struct {
-	RepoURL   string
-	CommitSHA string
-	Branch    string
-	Tag       string
+	RepoURL     string
+	CommitSHA   string
+	Branch      string
+	Tag         string
+	PullRequest string // PR number (e.g., "123") extracted from annotations or branch name
 }
 
 // ImageMetadataExtractor handles extracting metadata from container images
@@ -145,6 +146,9 @@ func (e *ImageMetadataExtractor) ExtractGitMetadata(ctx context.Context, image s
 		metadata.Tag = tag
 	}
 
+	// Extract PR number from annotations or branch name
+	metadata.PullRequest = extractPRNumber(annotations, metadata.Branch)
+
 	fmt.Printf("✅ Extracted git metadata:\n")
 	fmt.Printf("   Repository: %s\n", metadata.RepoURL)
 	fmt.Printf("   Commit: %s\n", metadata.CommitSHA)
@@ -154,7 +158,77 @@ func (e *ImageMetadataExtractor) ExtractGitMetadata(ctx context.Context, image s
 	if metadata.Tag != "" {
 		fmt.Printf("   Tag: %s\n", metadata.Tag)
 	}
+	if metadata.PullRequest != "" {
+		fmt.Printf("   Pull Request: #%s\n", metadata.PullRequest)
+	}
 
 	return metadata, nil
+}
+
+// extractPRNumber attempts to extract the PR number from annotations or branch name
+func extractPRNumber(annotations map[string]interface{}, branch string) string {
+	// Try Konflux/PipelinesAsCode PR annotation first
+	// Common annotations that might contain PR info:
+	// - pipelinesascode.tekton.dev/pull-request
+	// - build.appstudio.redhat.com/pull_request_number
+	
+	if prNum, ok := annotations["pipelinesascode.tekton.dev/pull-request"].(string); ok && prNum != "" {
+		return prNum
+	}
+	
+	if prNum, ok := annotations["build.appstudio.redhat.com/pull_request_number"].(string); ok && prNum != "" {
+		return prNum
+	}
+
+	// If not in annotations, try to parse from branch name
+	// Common patterns:
+	// - pull/123/head (GitHub)
+	// - pr-123, pr/123 (GitLab, custom)
+	// - refs/pull/123/head
+	if branch != "" {
+		// GitHub style: pull/123/head or refs/pull/123/head
+		if strings.Contains(branch, "/pull/") || strings.HasPrefix(branch, "pull/") {
+			parts := strings.Split(branch, "/")
+			for i, part := range parts {
+				if part == "pull" && i+1 < len(parts) {
+					// Next part should be the PR number
+					prNum := parts[i+1]
+					// Verify it's a number
+					if len(prNum) > 0 && isNumeric(prNum) {
+						return prNum
+					}
+				}
+			}
+		}
+		
+		// GitLab/custom style: pr-123 or pr/123
+		if strings.HasPrefix(branch, "pr-") {
+			prNum := strings.TrimPrefix(branch, "pr-")
+			if isNumeric(prNum) {
+				return prNum
+			}
+		}
+		if strings.HasPrefix(branch, "pr/") {
+			prNum := strings.TrimPrefix(branch, "pr/")
+			if isNumeric(prNum) {
+				return prNum
+			}
+		}
+	}
+
+	return ""
+}
+
+// isNumeric checks if a string contains only digits
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
