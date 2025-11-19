@@ -26,11 +26,12 @@ type CoverageProcessor struct {
 
 // ProcessOptions contains options for processing coverage
 type ProcessOptions struct {
-	Format     CoverageFormat
-	InputDir   string   // Directory containing binary coverage (Go) or raw coverage
-	OutputFile string   // Output coverage file path
-	RepoRoot   string   // Repository root for path mapping
-	Filters    []string // File patterns to exclude
+	Format       CoverageFormat
+	InputDir     string   // Directory containing binary coverage (Go) or raw coverage
+	OutputFile   string   // Output coverage file path
+	RepoRoot     string   // Repository root for path mapping
+	Filters      []string // File patterns to exclude
+	GenerateHTML bool     // Generate HTML coverage report
 }
 
 // NewCoverageProcessor creates a new coverage processor
@@ -182,6 +183,13 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 	// It's non-critical - coverage data is still valid for upload
 	_ = p.showGoCoverageSummary(ctx, goPath, filteredFile, opts.RepoRoot)
 
+	// Generate HTML report if requested
+	if opts.GenerateHTML {
+		if err := p.generateHTMLReport(ctx, goPath, filteredFile, opts.RepoRoot); err != nil {
+			fmt.Printf("⚠️  Failed to generate HTML report: %v\n", err)
+		}
+	}
+
 	fmt.Println("✅ Go coverage processed successfully!")
 	return nil
 }
@@ -260,6 +268,12 @@ func (p *CoverageProcessor) remapPathsToRelative(coverageFile, repoRoot string) 
 				remappedPath = strings.TrimPrefix(path, absRepoRoot+string(filepath.Separator))
 				remappedCount++
 			}
+		}
+
+		// Ensure relative paths start with "./" for go tool cover compatibility
+		// go tool cover expects paths like "./file.go" not just "file.go"
+		if remappedPath != path && !strings.HasPrefix(remappedPath, "./") && !filepath.IsAbs(remappedPath) {
+			remappedPath = "./" + remappedPath
 		}
 
 		remappedLines = append(remappedLines, remappedPath+rest)
@@ -401,5 +415,42 @@ func (p *CoverageProcessor) showGoCoverageSummary(ctx context.Context, goPath, c
 		}
 	}
 
+	return nil
+}
+
+// generateHTMLReport generates an HTML coverage report
+func (p *CoverageProcessor) generateHTMLReport(ctx context.Context, goPath, coverageFile, repoRoot string) error {
+	fmt.Println("   📊 Generating HTML coverage report...")
+
+	// Determine HTML output path (same directory as coverage file)
+	htmlPath := strings.TrimSuffix(coverageFile, filepath.Ext(coverageFile)) + ".html"
+
+	// Convert to absolute paths
+	absCoverageFile, err := filepath.Abs(coverageFile)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for coverage file: %w", err)
+	}
+
+	absHTMLPath, err := filepath.Abs(htmlPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for HTML file: %w", err)
+	}
+
+	// Generate HTML report
+	cmd := exec.CommandContext(ctx, goPath, "tool", "cover",
+		"-html="+absCoverageFile,
+		"-o="+absHTMLPath)
+
+	// Run from repo root so source files can be found and included in the HTML
+	if repoRoot != "" {
+		cmd.Dir = repoRoot
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to generate HTML report: %w\nOutput: %s", err, string(output))
+	}
+
+	fmt.Printf("   ✅ HTML report generated: %s\n", htmlPath)
 	return nil
 }

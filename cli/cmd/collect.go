@@ -69,7 +69,6 @@ var (
 	autoProcess  bool
 	skipGenerate bool
 	skipFilter   bool
-	skipHTML     bool
 
 	// OCI push options
 	push          bool
@@ -106,7 +105,7 @@ func init() {
 	collectCmd.Flags().BoolVar(&autoProcess, "auto-process", true, "Automatically process coverage reports")
 	collectCmd.Flags().BoolVar(&skipGenerate, "skip-generate", false, "Skip generating text reports")
 	collectCmd.Flags().BoolVar(&skipFilter, "skip-filter", false, "Skip filtering reports")
-	collectCmd.Flags().BoolVar(&skipHTML, "skip-html", false, "Skip generating HTML reports")
+	// Note: HTML generation moved to 'process' command as it requires source code access
 
 	// OCI push options
 	collectCmd.Flags().BoolVar(&push, "push", false, "Push coverage artifact to OCI registry")
@@ -416,15 +415,8 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 			if err := client.FilterCoverageReport(componentTestName); err != nil {
 				printWarning("Failed to filter report: %v", err)
 			}
-
-			if !skipHTML {
-				if err := client.GenerateHTMLReport(componentTestName); err != nil {
-					if verbose {
-						printWarning("Failed to generate HTML report: %v", err)
-					}
-				}
-			}
 		}
+		// Note: HTML generation moved to 'process' command as it requires source code access
 	}
 
 	// Return component info for manifest

@@ -63,6 +63,7 @@ var (
 	// Coverage processing options
 	coverageFormat  string
 	coverageFilters []string
+	generateHTML    bool
 
 	// Upload options
 	uploadCoverage bool
@@ -92,6 +93,7 @@ func init() {
 	// Coverage processing options
 	processCmd.Flags().StringVar(&coverageFormat, "format", "auto", "Coverage format: go, python, nyc, auto")
 	processCmd.Flags().StringSliceVar(&coverageFilters, "filters", []string{"coverage_server.go", "*_test.go"}, "File patterns to exclude from coverage")
+	processCmd.Flags().BoolVar(&generateHTML, "generate-html", false, "Generate HTML coverage report (requires source code)")
 
 	// Upload options
 	processCmd.Flags().BoolVar(&uploadCoverage, "upload", true, "Upload coverage to services (codecov, sonarqube)")
@@ -478,11 +480,12 @@ func processCoverage(ctx context.Context, inputDir, outputFile, repoRoot string,
 	proc := processor.NewCoverageProcessor(format)
 
 	opts := processor.ProcessOptions{
-		Format:     format,
-		InputDir:   inputDir,
-		OutputFile: outputFile,
-		RepoRoot:   repoRoot,
-		Filters:    coverageFilters,
+		Format:       format,
+		InputDir:     inputDir,
+		OutputFile:   outputFile,
+		RepoRoot:     repoRoot,
+		Filters:      coverageFilters,
+		GenerateHTML: generateHTML,
 	}
 
 	return proc.Process(ctx, opts)
