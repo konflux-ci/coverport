@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/konflux-ci/coverport/cli/internal/discovery"
+	"github.com/konflux-ci/coverport/cli/internal/manifest"
 	"github.com/konflux-ci/coverport/cli/internal/snapshot"
 	coverageclient "github.com/konflux-ci/coverport/cli/pkg/client"
 	corev1 "k8s.io/api/core/v1"
@@ -208,13 +208,26 @@ func runCollect(cmd *cobra.Command, args []string) {
 	}
 	fmt.Println()
 
+	// Create collection manifest
+	collectionManifest := manifest.NewCollectionManifest(testName, manifest.CollectionParameters{
+		CoveragePort: coveragePort,
+		Filters:      filters,
+		Format:       "go", // TODO: support auto-detection
+		Namespace:    namespace,
+	})
+
 	// Collect coverage from each pod
 	successCount := 0
 	for _, podInfo := range podsToCollect {
-		if err := collectFromPod(ctx, restConfig, podInfo, verbose); err != nil {
+		componentInfo, err := collectFromPod(ctx, restConfig, podInfo, verbose)
+		if err != nil {
 			printWarning("Failed to collect from %s/%s: %v", podInfo.Namespace, podInfo.Name, err)
 		} else {
 			successCount++
+			// Add successful collection to manifest
+			if componentInfo != nil {
+				collectionManifest.AddComponent(*componentInfo)
+			}
 		}
 	}
 
@@ -223,6 +236,11 @@ func runCollect(cmd *cobra.Command, args []string) {
 	}
 
 	printSuccess("Collected coverage from %d/%d pod(s)", successCount, len(podsToCollect))
+
+	// Save collection manifest
+	if err := collectionManifest.Save(outputDir); err != nil {
+		printWarning("Failed to save collection manifest: %v", err)
+	}
 
 	// Push to OCI registry if requested
 	if push {
@@ -356,19 +374,19 @@ func discoverPodsFromNames(ctx context.Context, clientset kubernetes.Interface, 
 	return pods, nil
 }
 
-func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discovery.PodInfo, verbose bool) error {
+func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discovery.PodInfo, verbose bool) (*manifest.ComponentInfo, error) {
 	fmt.Printf("\n📊 Collecting from: %s/%s (component: %s)\n", podInfo.Namespace, podInfo.Name, podInfo.ComponentName)
 
 	// Create component-specific output directory
 	componentDir := filepath.Join(outputDir, podInfo.ComponentName)
 	if err := os.MkdirAll(componentDir, 0755); err != nil {
-		return fmt.Errorf("create component directory: %w", err)
+		return nil, fmt.Errorf("create component directory: %w", err)
 	}
 
 	// Create coverage client for this pod's namespace
 	client, err := coverageclient.NewClient(podInfo.Namespace, componentDir)
 	if err != nil {
-		return fmt.Errorf("create coverage client: %w", err)
+		return nil, fmt.Errorf("create coverage client: %w", err)
 	}
 
 	// Configure client
@@ -381,13 +399,10 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 	// Collect coverage
 	componentTestName := fmt.Sprintf("%s-%s", testName, podInfo.ComponentName)
 	if err := client.CollectCoverageFromPodWithContainer(ctx, podInfo.Name, podInfo.ContainerName, componentTestName, coveragePort); err != nil {
-		return fmt.Errorf("collect coverage: %w", err)
+		return nil, fmt.Errorf("collect coverage: %w", err)
 	}
 
-	// Save component metadata
-	if err := saveComponentMetadata(componentDir, componentTestName, podInfo); err != nil {
-		printWarning("Failed to save component metadata: %v", err)
-	}
+	// Note: Component metadata is now stored in the top-level manifest, not as separate files
 
 	// Process reports if enabled
 	if autoProcess && !skipGenerate {
@@ -412,27 +427,16 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 		}
 	}
 
-	return nil
-}
-
-func saveComponentMetadata(componentDir, testName string, podInfo discovery.PodInfo) error {
-	metadata := map[string]interface{}{
-		"component_name": podInfo.ComponentName,
-		"pod_name":       podInfo.Name,
-		"namespace":      podInfo.Namespace,
-		"image":          podInfo.Image,
-		"container_name": podInfo.ContainerName,
-		"test_name":      testName,
-		"collected_at":   time.Now().Format(time.RFC3339),
-	}
-
-	data, err := json.MarshalIndent(metadata, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	metadataPath := filepath.Join(componentDir, testName, "component-metadata.json")
-	return os.WriteFile(metadataPath, data, 0644)
+	// Return component info for manifest
+	return &manifest.ComponentInfo{
+		Name:          podInfo.ComponentName,
+		Image:         podInfo.Image,
+		CoverageDir:   filepath.Join(podInfo.ComponentName, componentTestName),
+		Namespace:     podInfo.Namespace,
+		PodName:       podInfo.Name,
+		ContainerName: podInfo.ContainerName,
+		CollectedAt:   time.Now().Format(time.RFC3339),
+	}, nil
 }
 
 func pushCoverageArtifact(ctx context.Context, pods []discovery.PodInfo) error {

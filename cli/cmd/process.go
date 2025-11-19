@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/konflux-ci/coverport/cli/internal/git"
+	"github.com/konflux-ci/coverport/cli/internal/manifest"
 	"github.com/konflux-ci/coverport/cli/internal/metadata"
 	"github.com/konflux-ci/coverport/cli/internal/processor"
 	"github.com/konflux-ci/coverport/cli/internal/upload"
@@ -30,26 +31,22 @@ var processCmd = &cobra.Command{
 
 This command replaces the complex bash scripts in Tekton pipelines with a single,
 maintainable CLI command.`,
-	Example: `  # Process coverage from OCI artifact
-  coverport process \
-    --artifact-ref=quay.io/org/coverage:tag \
-    --image=quay.io/org/app@sha256:abc123 \
-    --codecov-token=$CODECOV_TOKEN
-
-  # Process from local directory
+	Example: `  # Process all components from collected coverage (reads metadata.json)
   coverport process \
     --coverage-dir=./coverage-output \
-    --image=quay.io/org/app@sha256:abc123 \
-    --codecov-token=$CODECOV_TOKEN \
-    --upload
+    --codecov-token=$CODECOV_TOKEN
 
-  # Process with custom options
+  # Process with custom flags
   coverport process \
-    --artifact-ref=quay.io/org/coverage:tag \
-    --image=quay.io/org/app@sha256:abc123 \
-    --workspace=/workspace \
+    --coverage-dir=./coverage-output \
     --codecov-token=$CODECOV_TOKEN \
-    --codecov-flags=e2e,integration`,
+    --codecov-flags=e2e-tests,integration
+
+  # Legacy: Process single component without manifest
+  coverport process \
+    --coverage-dir=./coverage-output/comp1/test1 \
+    --image=quay.io/org/app@sha256:abc123 \
+    --codecov-token=$CODECOV_TOKEN`,
 	Run: runProcess,
 }
 
@@ -109,6 +106,123 @@ func init() {
 	processCmd.Flags().IntVar(&cloneDepth, "clone-depth", 1, "Git clone depth (0 for full clone)")
 }
 
+// processFromManifest processes all components listed in the collection manifest
+func processFromManifest(ctx context.Context, cmd *cobra.Command, verbose bool) {
+	// Load the manifest
+	collectionManifest, err := manifest.Load(coverageDir)
+	if err != nil {
+		exitWithError("Failed to load collection manifest: %v", err)
+	}
+
+	fmt.Println("🚀 coverport - Coverage Processing Tool (Batch Mode)")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("Collection:    %s\n", collectionManifest.TestName)
+	fmt.Printf("Components:    %d\n", len(collectionManifest.Components))
+	fmt.Printf("Coverage Dir:  %s\n", coverageDir)
+	fmt.Println(strings.Repeat("=", 60))
+
+	if len(collectionManifest.Components) == 0 {
+		exitWithError("No components found in manifest")
+	}
+
+	// Process each component
+	successCount := 0
+	failedComponents := []string{}
+
+	for i, component := range collectionManifest.Components {
+		fmt.Printf("\n[%d/%d] Processing component: %s\n", i+1, len(collectionManifest.Components), component.Name)
+		fmt.Printf("  Image: %s\n", truncateImage(component.Image))
+		fmt.Printf("  Coverage: %s\n", component.CoverageDir)
+
+		// Setup workspace for this component
+		componentWorkspace := filepath.Join(coverageDir, component.Name+"-workspace")
+		if workspaceDir != "" {
+			componentWorkspace = filepath.Join(workspaceDir, component.Name)
+		}
+		if err := os.MkdirAll(componentWorkspace, 0755); err != nil {
+			printWarning("Failed to create workspace for %s: %v", component.Name, err)
+			failedComponents = append(failedComponents, component.Name)
+			continue
+		}
+
+		// Process this component
+		componentCoverageDir := filepath.Join(coverageDir, component.CoverageDir)
+		if err := processComponent(ctx, component, componentCoverageDir, componentWorkspace, verbose); err != nil {
+			printWarning("Failed to process %s: %v", component.Name, err)
+			failedComponents = append(failedComponents, component.Name)
+		} else {
+			successCount++
+		}
+
+		// Cleanup component workspace unless keeping
+		if !keepWorkspace {
+			os.RemoveAll(componentWorkspace)
+		}
+	}
+
+	// Print summary
+	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println("📊 Processing Summary")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("Total components:     %d\n", len(collectionManifest.Components))
+	fmt.Printf("Successfully processed: %d\n", successCount)
+	fmt.Printf("Failed:               %d\n", len(failedComponents))
+
+	if len(failedComponents) > 0 {
+		fmt.Printf("\nFailed components:\n")
+		for _, name := range failedComponents {
+			fmt.Printf("  - %s\n", name)
+		}
+	}
+
+	if successCount == 0 {
+		exitWithError("Failed to process any components")
+	}
+
+	fmt.Println("\n✅ Coverage processing complete!")
+}
+
+// processComponent processes a single component
+func processComponent(ctx context.Context, component manifest.ComponentInfo, coverageDir, workspace string, verbose bool) error {
+	// Extract git metadata from image
+	gitMeta, err := extractGitMetadata(ctx, component.Image, verbose)
+	if err != nil {
+		return fmt.Errorf("extract git metadata: %w", err)
+	}
+
+	// Clone repository
+	repoDir := filepath.Join(workspace, "repo")
+	if !skipClone {
+		if err := cloneRepository(ctx, gitMeta, repoDir, verbose); err != nil {
+			return fmt.Errorf("clone repository: %w", err)
+		}
+	}
+
+	// Process coverage
+	coverageFile := filepath.Join(workspace, "coverage.out")
+	if err := processCoverage(ctx, coverageDir, coverageFile, repoDir, verbose); err != nil {
+		return fmt.Errorf("process coverage: %w", err)
+	}
+
+	// Upload to services
+	if uploadCoverage {
+		token := codecovToken
+		if token == "" {
+			token = os.Getenv("CODECOV_TOKEN")
+		}
+
+		if token != "" {
+			if err := uploadToCodecov(ctx, token, coverageFile, gitMeta, verbose); err != nil {
+				printWarning("Failed to upload to Codecov: %v", err)
+			}
+		} else if verbose {
+			printInfo("Skipping Codecov upload (no token provided)")
+		}
+	}
+
+	return nil
+}
+
 func runProcess(cmd *cobra.Command, args []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
@@ -122,8 +236,17 @@ func runProcess(cmd *cobra.Command, args []string) {
 	if artifactRef != "" && coverageDir != "" {
 		exitWithError("Cannot specify both --artifact-ref and --coverage-dir")
 	}
+
+	// Check if coverage directory has a manifest (new workflow)
+	if coverageDir != "" && manifest.Exists(coverageDir) {
+		// New workflow: Process all components from manifest
+		processFromManifest(ctx, cmd, verbose)
+		return
+	}
+
+	// Legacy workflow: Single component processing
 	if imageRef == "" && (repoURL == "" || commitSHA == "") {
-		exitWithError("Either --image must be specified, or both --repo-url and --commit-sha")
+		exitWithError("Legacy mode requires --image, or both --repo-url and --commit-sha. For batch processing, ensure metadata.json exists in coverage directory.")
 	}
 
 	// Setup workspace
