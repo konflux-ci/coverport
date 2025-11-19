@@ -27,6 +27,7 @@ RUN microdnf install -y \
     tar \
     gzip \
     jq \
+    findutils \
     && microdnf clean all
 
 # Install Go toolchain (needed for coverage processing)
