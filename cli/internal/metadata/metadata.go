@@ -45,18 +45,24 @@ func (e *ImageMetadataExtractor) ExtractGitMetadata(ctx context.Context, image s
 		return nil, fmt.Errorf("failed to download attestation: %w (output: %s)", err, output)
 	}
 
-	// Parse the attestation JSON
+	// Parse the attestation JSON - handle both single object and array
+	var attestation map[string]interface{}
+	
+	// Try to parse as array first
 	var attestations []map[string]interface{}
-	if err := json.Unmarshal(output, &attestations); err != nil {
-		return nil, fmt.Errorf("failed to parse attestation JSON: %w", err)
+	if err := json.Unmarshal(output, &attestations); err == nil && len(attestations) > 0 {
+		// It's an array, use the first one
+		attestation = attestations[0]
+	} else {
+		// Try to parse as single object
+		if err := json.Unmarshal(output, &attestation); err != nil {
+			return nil, fmt.Errorf("failed to parse attestation JSON (tried both array and object): %w", err)
+		}
 	}
 
-	if len(attestations) == 0 {
-		return nil, fmt.Errorf("no attestations found for image")
+	if attestation == nil || len(attestation) == 0 {
+		return nil, fmt.Errorf("no attestation data found for image")
 	}
-
-	// Extract the payload (it's base64 encoded)
-	attestation := attestations[0]
 	payloadStr, ok := attestation["payload"].(string)
 	if !ok {
 		return nil, fmt.Errorf("attestation payload not found or invalid")

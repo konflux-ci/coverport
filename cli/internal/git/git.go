@@ -41,6 +41,14 @@ func (c *RepositoryCloner) Clone(ctx context.Context, opts CloneOptions) error {
 	fmt.Printf("   Commit: %s\n", opts.CommitSHA)
 	fmt.Printf("   Target: %s\n", opts.TargetDir)
 
+	// Check if target directory already exists
+	if _, err := os.Stat(opts.TargetDir); err == nil {
+		fmt.Println("   ℹ️  Target directory already exists, removing...")
+		if err := os.RemoveAll(opts.TargetDir); err != nil {
+			return fmt.Errorf("failed to remove existing directory: %w", err)
+		}
+	}
+
 	// Create target directory if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(opts.TargetDir), 0755); err != nil {
 		return fmt.Errorf("failed to create target directory: %w", err)

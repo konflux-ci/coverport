@@ -60,18 +60,18 @@ var (
 	imageRef    string
 
 	// Workspace options
-	workspaceDir string
+	workspaceDir  string
 	keepWorkspace bool
 
 	// Coverage processing options
-	coverageFormat string
+	coverageFormat  string
 	coverageFilters []string
 
 	// Upload options
-	uploadCoverage   bool
-	codecovToken     string
-	codecovFlags     []string
-	codecovName      string
+	uploadCoverage bool
+	codecovToken   string
+	codecovFlags   []string
+	codecovName    string
 
 	// Git options
 	repoURL    string
@@ -131,6 +131,30 @@ func runProcess(cmd *cobra.Command, args []string) {
 	if err != nil {
 		exitWithError("Failed to setup workspace: %v", err)
 	}
+
+	// Step 1: Get coverage data location first to validate workspace
+	var rawCoverageDir string
+	if artifactRef != "" {
+		// Will be pulled into workspace, no conflict
+		rawCoverageDir = ""
+	} else {
+		rawCoverageDir = coverageDir
+	}
+
+	// Safety check: prevent workspace from being deleted if it contains coverage data
+	if rawCoverageDir != "" && !keepWorkspace {
+		absWorkspace, _ := filepath.Abs(workspace)
+		absCoverageDir, _ := filepath.Abs(rawCoverageDir)
+
+		// Check if coverage dir is inside workspace or workspace is inside coverage dir
+		if strings.HasPrefix(absCoverageDir, absWorkspace+string(filepath.Separator)) {
+			exitWithError("Workspace '%s' contains coverage data '%s'. Use --keep-workspace or specify a different workspace directory.", workspace, rawCoverageDir)
+		}
+		if strings.HasPrefix(absWorkspace, absCoverageDir+string(filepath.Separator)) {
+			exitWithError("Coverage directory '%s' contains workspace '%s'. Use --keep-workspace or specify a different workspace directory.", rawCoverageDir, workspace)
+		}
+	}
+
 	if !keepWorkspace {
 		defer cleanupWorkspace(workspace)
 	}
@@ -141,14 +165,12 @@ func runProcess(cmd *cobra.Command, args []string) {
 	fmt.Println(strings.Repeat("=", 60))
 
 	// Step 1: Get coverage data
-	var rawCoverageDir string
 	if artifactRef != "" {
 		rawCoverageDir, err = pullCoverageArtifact(ctx, artifactRef, workspace, verbose)
 		if err != nil {
 			exitWithError("Failed to pull coverage artifact: %v", err)
 		}
 	} else {
-		rawCoverageDir = coverageDir
 		printInfo("Using local coverage directory: %s", rawCoverageDir)
 	}
 
@@ -331,7 +353,7 @@ func processCoverage(ctx context.Context, inputDir, outputFile, repoRoot string,
 	}
 
 	proc := processor.NewCoverageProcessor(format)
-	
+
 	opts := processor.ProcessOptions{
 		Format:     format,
 		InputDir:   inputDir,
@@ -351,21 +373,108 @@ func uploadToCodecov(ctx context.Context, token, coverageFile string, gitMeta *m
 	}
 	defer uploader.Cleanup()
 
-	// Determine repo root (parent of coverage file)
-	repoRoot := filepath.Dir(filepath.Dir(coverageFile))
+	// Get the workspace directory and repository directory
+	workspace := filepath.Dir(coverageFile) // workspace is parent of coverage.out
+	repoRoot := filepath.Join(workspace, "repo")
+
+	// Use filtered coverage if it exists, otherwise use the regular coverage file
+	sourceFile := coverageFile
+	filteredFile := strings.TrimSuffix(coverageFile, ".out") + "_filtered.out"
+	if _, err := os.Stat(filteredFile); err == nil {
+		sourceFile = filteredFile
+		fmt.Printf("   📄 Using filtered coverage file\n")
+	}
+
+	// Copy coverage file to repository directory for upload
+	// This ensures Codecov only sees files that exist in the repository
+	repoCoverageFile := filepath.Join(repoRoot, "coverage.out")
+	if err := copyCoverageToRepo(sourceFile, repoCoverageFile); err != nil {
+		return fmt.Errorf("failed to copy coverage to repo: %w", err)
+	}
+
+	// Extract repository slug and git service from URL
+	repoSlug := extractRepoSlug(gitMeta.RepoURL)
+	gitService := extractGitService(gitMeta.RepoURL)
 
 	opts := upload.CodecovOptions{
 		Token:        token,
 		CommitSHA:    gitMeta.CommitSHA,
 		Branch:       gitMeta.Branch,
 		RepoRoot:     repoRoot,
-		CoverageFile: coverageFile,
+		RepoSlug:     repoSlug,
+		GitService:   gitService,
+		CoverageFile: repoCoverageFile,
 		Flags:        codecovFlags,
 		Name:         codecovName,
 		Verbose:      verbose,
 	}
 
 	return uploader.Upload(ctx, opts)
+}
+
+// copyCoverageToRepo copies the coverage file to the repository directory
+func copyCoverageToRepo(srcPath, dstPath string) error {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return fmt.Errorf("read source coverage file: %w", err)
+	}
+
+	if err := os.WriteFile(dstPath, data, 0644); err != nil {
+		return fmt.Errorf("write coverage to repo: %w", err)
+	}
+
+	fmt.Printf("   📄 Copied coverage file to repository: %s\n", dstPath)
+	return nil
+}
+
+// extractRepoSlug extracts the repository slug (owner/repo) from a Git URL
+func extractRepoSlug(gitURL string) string {
+	// Remove .git suffix if present
+	gitURL = strings.TrimSuffix(gitURL, ".git")
+
+	// Handle different URL formats:
+	// - https://github.com/owner/repo
+	// - git@github.com:owner/repo
+	// - ssh://git@github.com/owner/repo
+
+	// Remove protocol prefixes
+	gitURL = strings.TrimPrefix(gitURL, "https://")
+	gitURL = strings.TrimPrefix(gitURL, "http://")
+	gitURL = strings.TrimPrefix(gitURL, "ssh://")
+	gitURL = strings.TrimPrefix(gitURL, "git@")
+
+	// Replace : with / for SSH-style URLs
+	gitURL = strings.Replace(gitURL, ":", "/", 1)
+
+	// Split by / and get the last two components
+	parts := strings.Split(gitURL, "/")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+	}
+
+	return ""
+}
+
+// extractGitService detects the git service from a Git URL
+func extractGitService(gitURL string) string {
+	gitURL = strings.ToLower(gitURL)
+
+	if strings.Contains(gitURL, "github.com") {
+		return "github"
+	} else if strings.Contains(gitURL, "gitlab.com") {
+		return "gitlab"
+	} else if strings.Contains(gitURL, "bitbucket.org") {
+		return "bitbucket"
+	} else if strings.Contains(gitURL, "github") && !strings.Contains(gitURL, "github.com") {
+		return "github_enterprise"
+	} else if strings.Contains(gitURL, "gitlab") && !strings.Contains(gitURL, "gitlab.com") {
+		return "gitlab_enterprise"
+	} else if strings.Contains(gitURL, "bitbucket") && !strings.Contains(gitURL, "bitbucket.org") {
+		return "bitbucket_server"
+	}
+
+	// Default to github if we can't determine
+	return "github"
 }
 
 // Helper to read metadata from artifact
@@ -383,4 +492,3 @@ func readArtifactMetadata(artifactDir string) (map[string]interface{}, error) {
 
 	return metadata, nil
 }
-

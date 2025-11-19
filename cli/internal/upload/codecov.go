@@ -20,14 +20,16 @@ type CodecovUploader struct {
 
 // CodecovOptions contains options for uploading to Codecov
 type CodecovOptions struct {
-	Token      string
-	CommitSHA  string
-	Branch     string
-	RepoRoot   string
+	Token       string
+	CommitSHA   string
+	Branch      string
+	RepoRoot    string
+	RepoSlug    string // Repository slug (e.g., "owner/repo")
+	GitService  string // Git service: github, gitlab, bitbucket, etc.
 	CoverageFile string
-	Flags      []string
-	Name       string
-	Verbose    bool
+	Flags       []string
+	Name        string
+	Verbose     bool
 }
 
 // NewCodecovUploader creates a new Codecov uploader
@@ -123,8 +125,14 @@ func (u *CodecovUploader) Upload(ctx context.Context, opts CodecovOptions) error
 		fmt.Printf("   Branch: %s\n", opts.Branch)
 	}
 
+	// Convert coverage file to absolute path (needed when running from repo root)
+	absCoverageFile, err := filepath.Abs(opts.CoverageFile)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for coverage file: %w", err)
+	}
+
 	// Verify coverage file exists
-	if _, err := os.Stat(opts.CoverageFile); err != nil {
+	if _, err := os.Stat(absCoverageFile); err != nil {
 		return fmt.Errorf("coverage file not found: %w", err)
 	}
 
@@ -132,9 +140,19 @@ func (u *CodecovUploader) Upload(ctx context.Context, opts CodecovOptions) error
 	args := []string{
 		"upload-coverage",
 		"-t", opts.Token,
-		"-f", opts.CoverageFile,
+		"-f", absCoverageFile,
 		"--sha", opts.CommitSHA,
 		"--disable-search", // Don't search for other coverage files
+	}
+
+	// Add repository slug if provided
+	if opts.RepoSlug != "" {
+		args = append(args, "--slug", opts.RepoSlug)
+	}
+
+	// Add git service if provided
+	if opts.GitService != "" {
+		args = append(args, "--git-service", opts.GitService)
 	}
 
 	// Add optional parameters
@@ -150,9 +168,10 @@ func (u *CodecovUploader) Upload(ctx context.Context, opts CodecovOptions) error
 		args = append(args, "--name", opts.Name)
 	}
 
-	if opts.Verbose {
-		args = append(args, "--verbose")
-	}
+	// Note: Codecov CLI doesn't support --verbose flag
+	// if opts.Verbose {
+	// 	args = append(args, "--verbose")
+	// }
 
 	// Execute upload
 	cmd := exec.CommandContext(ctx, u.codecovPath, args...)

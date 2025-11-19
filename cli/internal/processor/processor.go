@@ -125,11 +125,22 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	// Convert paths to absolute paths for the command
+	absInputDir, err := filepath.Abs(opts.InputDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for input dir: %w", err)
+	}
+	
+	absOutputFile, err := filepath.Abs(opts.OutputFile)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for output file: %w", err)
+	}
+
 	// Convert binary coverage to text format
 	fmt.Println("   Converting binary coverage to text format...")
 	cmd := exec.CommandContext(ctx, goPath, "tool", "covdata", "textfmt", 
-		"-i="+opts.InputDir, 
-		"-o="+opts.OutputFile)
+		"-i="+absInputDir, 
+		"-o="+absOutputFile)
 	
 	if opts.RepoRoot != "" {
 		cmd.Dir = opts.RepoRoot
@@ -143,6 +154,15 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 	// Verify output file was created
 	if _, err := os.Stat(opts.OutputFile); err != nil {
 		return fmt.Errorf("coverage file was not created: %w", err)
+	}
+
+	// Remap absolute paths to relative paths (for Codecov compatibility)
+	if opts.RepoRoot != "" {
+		if err := p.remapPathsToRelative(opts.OutputFile, opts.RepoRoot); err != nil {
+			fmt.Printf("⚠️  Failed to remap paths: %v\n", err)
+		} else {
+			fmt.Println("   ✅ Remapped absolute paths to relative paths")
+		}
 	}
 
 	// Apply filters if specified
@@ -181,6 +201,124 @@ func (p *CoverageProcessor) processNYCCoverage(ctx context.Context, opts Process
 	// This would use nyc or istanbul to convert coverage-final.json to lcov
 	
 	return fmt.Errorf("NYC coverage processing not yet implemented")
+}
+
+// remapPathsToRelative converts absolute paths to relative paths in coverage file
+func (p *CoverageProcessor) remapPathsToRelative(coverageFile, repoRoot string) error {
+	// Read the coverage file
+	data, err := os.ReadFile(coverageFile)
+	if err != nil {
+		return fmt.Errorf("failed to read coverage file: %w", err)
+	}
+
+	lines := strings.Split(string(data), "\n")
+	
+	// Detect the common source path prefix from coverage data
+	// This handles both container paths (e.g., /app/) and local paths
+	sourcePrefix := detectSourcePrefix(lines, repoRoot)
+	
+	var remappedLines []string
+	remappedCount := 0
+
+	for _, line := range lines {
+		// Skip mode line
+		if strings.HasPrefix(line, "mode:") {
+			remappedLines = append(remappedLines, line)
+			continue
+		}
+		
+		// Coverage lines format: path:line.col,line.col count1 count2
+		// We need to extract and remap the path part
+		if line == "" {
+			remappedLines = append(remappedLines, line)
+			continue
+		}
+		
+		// Find the first colon (after the path)
+		colonIdx := strings.Index(line, ":")
+		if colonIdx == -1 {
+			remappedLines = append(remappedLines, line)
+			continue
+		}
+		
+		path := line[:colonIdx]
+		rest := line[colonIdx:]
+		
+		// Remap the path
+		remappedPath := path
+		if sourcePrefix != "" && strings.HasPrefix(path, sourcePrefix) {
+			// Remove source prefix (e.g., /app/ -> "")
+			remappedPath = strings.TrimPrefix(path, sourcePrefix)
+			remappedCount++
+		} else if filepath.IsAbs(path) {
+			// Handle other absolute paths by making them relative to repo root
+			absRepoRoot, err := filepath.Abs(repoRoot)
+			if err == nil && strings.HasPrefix(path, absRepoRoot+string(filepath.Separator)) {
+				remappedPath = strings.TrimPrefix(path, absRepoRoot+string(filepath.Separator))
+				remappedCount++
+			}
+		}
+		
+		remappedLines = append(remappedLines, remappedPath+rest)
+	}
+
+	// Write the remapped coverage back
+	remapped := strings.Join(remappedLines, "\n")
+	if err := os.WriteFile(coverageFile, []byte(remapped), 0644); err != nil {
+		return fmt.Errorf("failed to write remapped coverage: %w", err)
+	}
+
+	if remappedCount > 0 {
+		fmt.Printf("   Remapped %d paths to relative (source prefix: %s)\n", remappedCount, sourcePrefix)
+	}
+
+	return nil
+}
+
+// detectSourcePrefix detects the common source path prefix from coverage data
+func detectSourcePrefix(lines []string, repoRoot string) string {
+	// Collect all paths from coverage lines
+	var paths []string
+	for _, line := range lines {
+		if strings.HasPrefix(line, "mode:") || line == "" {
+			continue
+		}
+		
+		colonIdx := strings.Index(line, ":")
+		if colonIdx == -1 {
+			continue
+		}
+		
+		path := line[:colonIdx]
+		if filepath.IsAbs(path) {
+			paths = append(paths, path)
+		}
+	}
+	
+	if len(paths) == 0 {
+		return ""
+	}
+	
+	// Find the common prefix
+	// For container builds, this is typically /app/, /workspace/, /go/src/..., etc.
+	commonPrefix := filepath.Dir(paths[0])
+	for _, path := range paths[1:] {
+		dir := filepath.Dir(path)
+		// Find common prefix between commonPrefix and dir
+		for !strings.HasPrefix(dir, commonPrefix) && commonPrefix != "/" && commonPrefix != "." {
+			commonPrefix = filepath.Dir(commonPrefix)
+		}
+	}
+	
+	// Ensure it ends with a separator
+	if commonPrefix != "" && commonPrefix != "/" && commonPrefix != "." {
+		if !strings.HasSuffix(commonPrefix, string(filepath.Separator)) {
+			commonPrefix += string(filepath.Separator)
+		}
+		return commonPrefix
+	}
+	
+	return ""
 }
 
 // applyFilters removes coverage data for files matching the filter patterns
