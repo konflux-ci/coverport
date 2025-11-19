@@ -26,11 +26,11 @@ type CoverageProcessor struct {
 
 // ProcessOptions contains options for processing coverage
 type ProcessOptions struct {
-	Format           CoverageFormat
-	InputDir         string  // Directory containing binary coverage (Go) or raw coverage
-	OutputFile       string  // Output coverage file path
-	RepoRoot         string  // Repository root for path mapping
-	Filters          []string // File patterns to exclude
+	Format     CoverageFormat
+	InputDir   string   // Directory containing binary coverage (Go) or raw coverage
+	OutputFile string   // Output coverage file path
+	RepoRoot   string   // Repository root for path mapping
+	Filters    []string // File patterns to exclude
 }
 
 // NewCoverageProcessor creates a new coverage processor
@@ -54,17 +54,17 @@ func DetectFormat(inputDir string) (CoverageFormat, error) {
 
 	for _, entry := range entries {
 		name := entry.Name()
-		
+
 		// Check for Go coverage
 		if strings.HasPrefix(name, "covmeta.") || strings.HasPrefix(name, "covcounters.") {
 			hasGoCoverage = true
 		}
-		
+
 		// Check for Python coverage
 		if name == ".coverage" || name == "coverage.xml" {
 			hasPythonCoverage = true
 		}
-		
+
 		// Check for NYC coverage
 		if name == "coverage-final.json" || name == ".nyc_output" {
 			hasNYCCoverage = true
@@ -130,7 +130,7 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path for input dir: %w", err)
 	}
-	
+
 	absOutputFile, err := filepath.Abs(opts.OutputFile)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path for output file: %w", err)
@@ -138,14 +138,14 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 
 	// Convert binary coverage to text format
 	fmt.Println("   Converting binary coverage to text format...")
-	cmd := exec.CommandContext(ctx, goPath, "tool", "covdata", "textfmt", 
-		"-i="+absInputDir, 
+	cmd := exec.CommandContext(ctx, goPath, "tool", "covdata", "textfmt",
+		"-i="+absInputDir,
 		"-o="+absOutputFile)
-	
+
 	if opts.RepoRoot != "" {
 		cmd.Dir = opts.RepoRoot
 	}
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to convert coverage: %w\nOutput: %s", err, string(output))
@@ -166,18 +166,21 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 	}
 
 	// Apply filters if specified
+	filteredFile := opts.OutputFile
 	if len(opts.Filters) > 0 {
 		if err := p.applyFilters(opts.OutputFile, opts.Filters); err != nil {
 			fmt.Printf("⚠️  Failed to apply filters: %v\n", err)
 		} else {
 			fmt.Printf("   Applied filters: %v\n", opts.Filters)
+			// Use filtered file for summary
+			filteredFile = strings.TrimSuffix(opts.OutputFile, ".out") + "_filtered.out"
 		}
 	}
 
-	// Show coverage summary
-	if err := p.showGoCoverageSummary(ctx, goPath, opts.OutputFile); err != nil {
-		fmt.Printf("⚠️  Failed to show coverage summary: %v\n", err)
-	}
+	// Show coverage summary (using filtered file if available)
+	// Note: This may fail in shallow clones where go list can't resolve all packages
+	// It's non-critical - coverage data is still valid for upload
+	_ = p.showGoCoverageSummary(ctx, goPath, filteredFile, opts.RepoRoot)
 
 	fmt.Println("✅ Go coverage processed successfully!")
 	return nil
@@ -186,20 +189,20 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 // processPythonCoverage processes Python coverage data (future implementation)
 func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts ProcessOptions) error {
 	fmt.Println("🔄 Processing Python coverage data...")
-	
+
 	// TODO: Implement Python coverage processing
 	// This would use the Python coverage package to convert .coverage to XML/JSON
-	
+
 	return fmt.Errorf("Python coverage processing not yet implemented")
 }
 
 // processNYCCoverage processes NYC (Node.js) coverage data (future implementation)
 func (p *CoverageProcessor) processNYCCoverage(ctx context.Context, opts ProcessOptions) error {
 	fmt.Println("🔄 Processing NYC coverage data...")
-	
+
 	// TODO: Implement NYC coverage processing
 	// This would use nyc or istanbul to convert coverage-final.json to lcov
-	
+
 	return fmt.Errorf("NYC coverage processing not yet implemented")
 }
 
@@ -212,11 +215,11 @@ func (p *CoverageProcessor) remapPathsToRelative(coverageFile, repoRoot string) 
 	}
 
 	lines := strings.Split(string(data), "\n")
-	
+
 	// Detect the common source path prefix from coverage data
 	// This handles both container paths (e.g., /app/) and local paths
 	sourcePrefix := detectSourcePrefix(lines, repoRoot)
-	
+
 	var remappedLines []string
 	remappedCount := 0
 
@@ -226,24 +229,24 @@ func (p *CoverageProcessor) remapPathsToRelative(coverageFile, repoRoot string) 
 			remappedLines = append(remappedLines, line)
 			continue
 		}
-		
+
 		// Coverage lines format: path:line.col,line.col count1 count2
 		// We need to extract and remap the path part
 		if line == "" {
 			remappedLines = append(remappedLines, line)
 			continue
 		}
-		
+
 		// Find the first colon (after the path)
 		colonIdx := strings.Index(line, ":")
 		if colonIdx == -1 {
 			remappedLines = append(remappedLines, line)
 			continue
 		}
-		
+
 		path := line[:colonIdx]
 		rest := line[colonIdx:]
-		
+
 		// Remap the path
 		remappedPath := path
 		if sourcePrefix != "" && strings.HasPrefix(path, sourcePrefix) {
@@ -258,7 +261,7 @@ func (p *CoverageProcessor) remapPathsToRelative(coverageFile, repoRoot string) 
 				remappedCount++
 			}
 		}
-		
+
 		remappedLines = append(remappedLines, remappedPath+rest)
 	}
 
@@ -283,22 +286,22 @@ func detectSourcePrefix(lines []string, repoRoot string) string {
 		if strings.HasPrefix(line, "mode:") || line == "" {
 			continue
 		}
-		
+
 		colonIdx := strings.Index(line, ":")
 		if colonIdx == -1 {
 			continue
 		}
-		
+
 		path := line[:colonIdx]
 		if filepath.IsAbs(path) {
 			paths = append(paths, path)
 		}
 	}
-	
+
 	if len(paths) == 0 {
 		return ""
 	}
-	
+
 	// Find the common prefix
 	// For container builds, this is typically /app/, /workspace/, /go/src/..., etc.
 	commonPrefix := filepath.Dir(paths[0])
@@ -309,7 +312,7 @@ func detectSourcePrefix(lines []string, repoRoot string) string {
 			commonPrefix = filepath.Dir(commonPrefix)
 		}
 	}
-	
+
 	// Ensure it ends with a separator
 	if commonPrefix != "" && commonPrefix != "/" && commonPrefix != "." {
 		if !strings.HasSuffix(commonPrefix, string(filepath.Separator)) {
@@ -317,7 +320,7 @@ func detectSourcePrefix(lines []string, repoRoot string) string {
 		}
 		return commonPrefix
 	}
-	
+
 	return ""
 }
 
@@ -356,7 +359,7 @@ func (p *CoverageProcessor) applyFilters(coverageFile string, filters []string) 
 	// Write filtered coverage
 	filtered := strings.Join(filteredLines, "\n")
 	filteredFile := strings.TrimSuffix(coverageFile, ".out") + "_filtered.out"
-	
+
 	if err := os.WriteFile(filteredFile, []byte(filtered), 0644); err != nil {
 		return fmt.Errorf("failed to write filtered coverage: %w", err)
 	}
@@ -366,15 +369,27 @@ func (p *CoverageProcessor) applyFilters(coverageFile string, filters []string) 
 }
 
 // showGoCoverageSummary displays a summary of the coverage
-func (p *CoverageProcessor) showGoCoverageSummary(ctx context.Context, goPath, coverageFile string) error {
-	cmd := exec.CommandContext(ctx, goPath, "tool", "cover", "-func="+coverageFile)
+func (p *CoverageProcessor) showGoCoverageSummary(ctx context.Context, goPath, coverageFile, repoRoot string) error {
+	// Convert coverage file to absolute path since we'll run from repo root
+	absCoverageFile, err := filepath.Abs(coverageFile)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for coverage file: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, goPath, "tool", "cover", "-func="+absCoverageFile)
+
+	// Run from repo root so relative paths in coverage file can be resolved
+	if repoRoot != "" {
+		cmd.Dir = repoRoot
+	}
+
 	output, err := cmd.Output()
 	if err != nil {
 		return err
 	}
 
 	lines := strings.Split(string(output), "\n")
-	
+
 	// Find the total line
 	for _, line := range lines {
 		if strings.HasPrefix(line, "total:") {
@@ -388,4 +403,3 @@ func (p *CoverageProcessor) showGoCoverageSummary(ctx context.Context, goPath, c
 
 	return nil
 }
-
