@@ -99,13 +99,13 @@ ARG COVERAGE_SERVER_URL=https://raw.githubusercontent.com/konflux-ci/coverport/v
 **Approach A: Package-based build (RECOMMENDED)**
 ```dockerfile
 RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
-        echo "📥 Downloading coverage server from: $COVERAGE_SERVER_URL"; \
+        echo "Downloading coverage server from: $COVERAGE_SERVER_URL"; \
         wget -q "$COVERAGE_SERVER_URL" -O <source-dir>/coverage_server.go; \
-        echo "✅ Coverage server downloaded"; \
-        echo "🧪 Building with coverage instrumentation..."; \
+        echo "Coverage server downloaded"; \
+        echo "Building with coverage instrumentation..."; \
         CGO_ENABLED=0 go build -cover -covermode=atomic -a -o <binary-name> ./<source-dir>; \
     else \
-        echo "🚀 Building production binary..."; \
+        echo "Building production binary..."; \
         CGO_ENABLED=0 go build -a -o <binary-name> ./<source-dir>; \
     fi
 ```
@@ -113,13 +113,13 @@ RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
 **Approach B: File-based build (only if main.go is in root)**
 ```dockerfile
 RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
-        echo "📥 Downloading coverage server from: $COVERAGE_SERVER_URL"; \
+        echo "Downloading coverage server from: $COVERAGE_SERVER_URL"; \
         wget -q "$COVERAGE_SERVER_URL" -O coverage_server.go; \
-        echo "✅ Coverage server downloaded"; \
-        echo "🧪 Building with coverage instrumentation..."; \
+        echo "Coverage server downloaded"; \
+        echo "Building with coverage instrumentation..."; \
         CGO_ENABLED=0 go build -cover -covermode=atomic -a -o <binary-name> main.go coverage_server.go; \
     else \
-        echo "🚀 Building production binary..."; \
+        echo "Building production binary..."; \
         CGO_ENABLED=0 go build -a -o <binary-name> main.go; \
     fi
 ```
@@ -148,12 +148,12 @@ podman images | grep test-
 ```
 
 **Expected output in instrumented build:**
-- "📥 Downloading coverage server from: ..."
-- "✅ Coverage server downloaded"
-- "🧪 Building with coverage instrumentation..."
+- "Downloading coverage server from: ..."
+- "Coverage server downloaded"
+- "Building with coverage instrumentation..."
 
 **Expected output in production build:**
-- "🚀 Building production binary..."
+- "Building production binary..."
 
 **If builds fail:**
 - Stop and fix the Dockerfile before proceeding
@@ -408,8 +408,8 @@ Before committing the changes, verify all modifications are correct:
 **Local validation (already completed in Step 3.5):**
 - [ ] `podman build` (production) succeeds
 - [ ] `podman build --build-arg ENABLE_COVERAGE=true` (instrumented) succeeds
-- [ ] Instrumented build logs show "🧪 Building with coverage instrumentation..."
-- [ ] Production build logs show "🚀 Building production binary..."
+- [ ] Instrumented build logs show "Building with coverage instrumentation..."
+- [ ] Production build logs show "Building production binary..."
 
 **File modifications checklist:**
 - [ ] `Dockerfile` has `ENABLE_COVERAGE` and `COVERAGE_SERVER_URL` build args
@@ -452,7 +452,7 @@ After integration is deployed to CI/CD, provide these verification steps to the 
 1. **Check instrumented image build:**
    - Push a commit to main branch
    - Verify the push pipeline creates an image with `.instrumented` tag
-   - Check build logs for "🧪 Building with coverage instrumentation..." message
+   - Check build logs for "Building with coverage instrumentation..." message
 
 2. **Check e2e coverage collection:**
    - Run e2e tests
