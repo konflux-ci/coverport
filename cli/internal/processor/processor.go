@@ -204,15 +204,7 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 	return fmt.Errorf("Python coverage processing not yet implemented")
 }
 
-// processNYCCoverage processes NYC (Node.js) coverage data (future implementation)
-func (p *CoverageProcessor) processNYCCoverage(ctx context.Context, opts ProcessOptions) error {
-	fmt.Println("🔄 Processing NYC coverage data...")
-
-	// TODO: Implement NYC coverage processing
-	// This would use nyc or istanbul to convert coverage-final.json to lcov
-
-	return fmt.Errorf("NYC coverage processing not yet implemented")
-}
+// processNYCCoverage is implemented in nyc.go
 
 // remapPathsToRelative converts absolute paths to relative paths in coverage file
 func (p *CoverageProcessor) remapPathsToRelative(coverageFile, repoRoot string) error {

@@ -46,6 +46,14 @@ maintainable CLI command.`,
   coverport process \
     --coverage-dir=./coverage-output/comp1/test1 \
     --image=quay.io/org/app@sha256:abc123 \
+    --codecov-token=$CODECOV_TOKEN
+
+  # Process NYC coverage and upload to Codecov
+  coverport process \
+    --coverage-dir=./e2e-tests/.nyc_output \
+    --format=nyc \
+    --repo-url=https://github.com/org/repo \
+    --commit-sha=abc123 \
     --codecov-token=$CODECOV_TOKEN`,
 	Run: runProcess,
 }
@@ -216,7 +224,7 @@ func processComponent(ctx context.Context, component manifest.ComponentInfo, cov
 		}
 
 		if token != "" {
-			if err := uploadToCodecov(ctx, token, coverageFile, gitMeta, verbose); err != nil {
+			if err := uploadToCodecov(ctx, token, coverageFile, repoDir, gitMeta, verbose); err != nil {
 				printWarning("Failed to upload to Codecov: %v", err)
 			}
 		} else if verbose {
@@ -349,7 +357,7 @@ func runProcess(cmd *cobra.Command, args []string) {
 			printWarning("CODECOV_TOKEN not provided, skipping upload")
 			printInfo("Set --codecov-token or CODECOV_TOKEN environment variable to enable upload")
 		} else {
-			if err := uploadToCodecov(ctx, token, coverageFile, gitMeta, verbose); err != nil {
+			if err := uploadToCodecov(ctx, token, coverageFile, repoDir, gitMeta, verbose); err != nil {
 				printWarning("Failed to upload to Codecov: %v", err)
 			}
 		}
@@ -494,16 +502,12 @@ func processCoverage(ctx context.Context, inputDir, outputFile, repoRoot string,
 }
 
 // uploadToCodecov uploads coverage to Codecov
-func uploadToCodecov(ctx context.Context, token, coverageFile string, gitMeta *metadata.GitMetadata, verbose bool) error {
+func uploadToCodecov(ctx context.Context, token, coverageFile, repoRoot string, gitMeta *metadata.GitMetadata, verbose bool) error {
 	uploader, err := upload.NewCodecovUploader(token)
 	if err != nil {
 		return err
 	}
 	defer uploader.Cleanup()
-
-	// Get the workspace directory and repository directory
-	workspace := filepath.Dir(coverageFile) // workspace is parent of coverage.out
-	repoRoot := filepath.Join(workspace, "repo")
 
 	// Use filtered coverage if it exists, otherwise use the regular coverage file
 	sourceFile := coverageFile
@@ -513,9 +517,19 @@ func uploadToCodecov(ctx context.Context, token, coverageFile string, gitMeta *m
 		fmt.Printf("   📄 Using filtered coverage file\n")
 	}
 
+	// For NYC/Istanbul coverage, use .lcov file if available (better Codecov support)
+	lcovFile := strings.TrimSuffix(coverageFile, filepath.Ext(coverageFile)) + ".lcov"
+	if _, err := os.Stat(lcovFile); err == nil {
+		sourceFile = lcovFile
+		fmt.Printf("   📄 Using LCOV coverage file for upload\n")
+	}
+
 	// Copy coverage file to repository directory for upload
 	// This ensures Codecov only sees files that exist in the repository
 	repoCoverageFile := filepath.Join(repoRoot, "coverage.out")
+	if strings.HasSuffix(sourceFile, ".lcov") {
+		repoCoverageFile = filepath.Join(repoRoot, "coverage.lcov")
+	}
 	if err := copyCoverageToRepo(sourceFile, repoCoverageFile); err != nil {
 		return fmt.Errorf("failed to copy coverage to repo: %w", err)
 	}
