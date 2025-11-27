@@ -81,58 +81,78 @@ Before making changes, ask the user:
 3. **Secret name** - Confirm they want to use `coverport-secrets` or specify a different name
 4. **OCI storage** - Confirm where coverage data should be stored (the quay.io repository for test artifacts)
 
-### Step 3: Modify the Dockerfile
+### Step 3: Add Coverport as a Go Module Dependency
+
+Add coverport to your Go module dependencies:
+
+```bash
+go get github.com/konflux-ci/coverport/instrumentation/go
+```
+
+Then manually add it as a tool dependency in `go.mod`:
+
+```go
+tool github.com/konflux-ci/coverport/instrumentation/go
+```
+
+This will:
+- Add the coverport package to `go.mod` as a dependency
+- Mark it as a tool dependency in `go.mod`
+- Update `go.sum` with the dependency checksums
+
+### Step 4: Create coverage_init.go File
+
+Create a new file `coverage_init.go` in the root of your Go module (same directory as `main.go` or where the `package main` is):
+
+```go
+//go:build coverage
+
+package main
+
+// This file is only included when building with -tags=coverage.
+// It starts a coverage HTTP server that allows collecting coverage data
+// from the running binary during E2E tests.
+
+import _ "github.com/konflux-ci/coverport/instrumentation/go" // starts coverage server via init()
+```
+
+**Important**:
+- The `//go:build coverage` tag ensures this file is only included when building with `-tags=coverage`
+- The blank import triggers the coverage server's init() function
+- This file should be at the root of your Go module (where `main.go` is, or where the main package is)
+
+### Step 5: Modify the Dockerfile
 
 Add coverage instrumentation support:
 
-**Add build arguments** (near the top after FROM):
+**Add build argument** (near the top after FROM):
 ```dockerfile
 # Build arguments
 ARG ENABLE_COVERAGE=false
-ARG COVERAGE_SERVER_URL=https://raw.githubusercontent.com/konflux-ci/coverport/v0.0.1/instrumentation/go/coverage_server.go
 ```
 
-**Modify the build command** to conditionally build with coverage:
+**Modify the build command** to conditionally build with coverage tags:
 
-**IMPORTANT**: Go's `go build` requires all source files to be in the same directory when building with individual files. You have two approaches:
-
-**Approach A: Package-based build (RECOMMENDED)**
 ```dockerfile
+# Build with or without coverage instrumentation
 RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
-        echo "Downloading coverage server from: $COVERAGE_SERVER_URL"; \
-        wget -q "$COVERAGE_SERVER_URL" -O <source-dir>/coverage_server.go; \
-        echo "Coverage server downloaded"; \
-        echo "Building with coverage instrumentation..."; \
-        CGO_ENABLED=0 go build -cover -covermode=atomic -a -o <binary-name> ./<source-dir>; \
+        echo "🧪 Building with coverage instrumentation..."; \
+        CGO_ENABLED=0 go build -cover -covermode=atomic -tags=coverage -o <binary-name> .; \
     else \
-        echo "Building production binary..."; \
-        CGO_ENABLED=0 go build -a -o <binary-name> ./<source-dir>; \
-    fi
-```
-
-**Approach B: File-based build (only if main.go is in root)**
-```dockerfile
-RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
-        echo "Downloading coverage server from: $COVERAGE_SERVER_URL"; \
-        wget -q "$COVERAGE_SERVER_URL" -O coverage_server.go; \
-        echo "Coverage server downloaded"; \
-        echo "Building with coverage instrumentation..."; \
-        CGO_ENABLED=0 go build -cover -covermode=atomic -a -o <binary-name> main.go coverage_server.go; \
-    else \
-        echo "Building production binary..."; \
-        CGO_ENABLED=0 go build -a -o <binary-name> main.go; \
+        echo "🚀 Building production binary..."; \
+        CGO_ENABLED=0 go build -a -o <binary-name> .; \
     fi
 ```
 
 **Important**:
-- If main.go is in a subdirectory (e.g., `cmd/`), use Approach A and download coverage_server.go to that same directory
-- If main.go is in the root directory, you can use either approach
 - Replace `<binary-name>` with the actual binary name
-- Replace `<source-dir>` with the directory containing main.go (e.g., `cmd`, `./`, etc.)
+- The `-tags=coverage` flag includes the `coverage_init.go` file
+- Build the package (`.`) rather than individual files
 - Only instrument binaries that run during e2e tests
 - Keep other binaries without instrumentation
+- No need to download external files - coverport is now a Go module dependency
 
-### Step 3.5: Validate Dockerfile Changes Locally
+### Step 5.5: Validate Dockerfile Changes Locally
 
 **IMPORTANT**: Before proceeding to pipeline changes, validate the Dockerfile modifications work correctly using podman or docker:
 
@@ -148,28 +168,26 @@ podman images | grep test-
 ```
 
 **Expected output in instrumented build:**
-- "Downloading coverage server from: ..."
-- "Coverage server downloaded"
-- "Building with coverage instrumentation..."
+- "🧪 Building with coverage instrumentation..."
 
 **Expected output in production build:**
-- "Building production binary..."
+- "🚀 Building production binary..."
 
 **If builds fail:**
 - Stop and fix the Dockerfile before proceeding
 - See Troubleshooting section for common issues
-- Ensure wget is available in the builder image
-- Verify the coverage server URL is accessible
-- Check that file paths match the directory structure
+- Ensure `coverage_init.go` exists in the correct location
+- Verify Go module dependencies were downloaded (check `go.mod` and `go.sum`)
+- Check that the build tags syntax is correct in `coverage_init.go`
 
 **Why this validation matters:**
 - Catches Dockerfile syntax errors immediately
-- Verifies coverage server download works
+- Verifies coverport Go module integration works
 - Confirms both production and instrumented builds succeed
 - Prevents wasting CI/CD pipeline time on broken builds
 - Validates the conditional build logic works correctly
 
-### Step 4: Update Tekton Push Pipeline
+### Step 6: Update Tekton Push Pipeline
 
 Add a task to build an instrumented image in the push pipeline (e.g., `.tekton/*-push.yaml`):
 
@@ -185,9 +203,9 @@ Find the location after `prefetch-dependencies` task and add:
   - name: CONTEXT
     value: $(params.path-context)
   - name: HERMETIC
-    value: "false"
+    value: $(params.hermetic)
   - name: PREFETCH_INPUT
-    value: ""
+    value: $(params.prefetch-input)
   - name: IMAGE_EXPIRES_AFTER
     value: $(params.image-expires-after)
   - name: COMMIT_SHA
@@ -209,7 +227,7 @@ Find the location after `prefetch-dependencies` task and add:
     - name: name
       value: buildah-oci-ta
     - name: bundle
-      value: quay.io/konflux-ci/tekton-catalog/task-buildah-oci-ta:0.5@sha256:fb3b36f1f800960dd3eb6291c9f8802b7305608a61b27310a541f53a716844a3
+      value: quay.io/konflux-ci/tekton-catalog/task-buildah-oci-ta:0.7@sha256:b54509f5f695c0c89de4587a403099a26da5cdc3707037edd4b7cf4342b63edd
     - name: kind
       value: task
     resolver: bundles
@@ -224,8 +242,8 @@ Find the location after `prefetch-dependencies` task and add:
 - Use `buildah-oci-ta` (NOT `buildah-remote-oci-ta`) - this is a regular local build for amd64 testing clusters
 - This should be a single task, NOT a matrix build (no PLATFORM parameter, no IMAGE_APPEND_PLATFORM)
 - Image tagged with `.instrumented` suffix
-- `HERMETIC: "false"` is required for downloading coverage server
-- `PREFETCH_INPUT: ""` (empty) to skip dependency prefetching for instrumented build
+- `HERMETIC: $(params.hermetic)` - uses the same hermetic setting as the main build (now supports hermetic builds!)
+- `PREFETCH_INPUT: $(params.prefetch-input)` - uses the same prefetch settings as the main build
 - `BUILD_ARGS` includes `ENABLE_COVERAGE=true`
 - Do NOT add a `build-instrumented-image-index` task - the instrumented image is single-platform only
 
@@ -293,24 +311,19 @@ For tests that deploy/run container images, find parameters that reference image
         value: tasks/coverport-coverage/0.1/coverport-coverage.yaml
 ```
 
-### Step 6: Update Tekton PR Pipeline (Pull Request Pipeline)
+### Step 8: Update Tekton PR Pipeline (Pull Request Pipeline)
 
 Update the PR pipeline (e.g., `.tekton/*-pull-request.yaml`) to build with coverage instrumentation:
 
-**A. Remove hermetic build and prefetch parameters from spec.params:**
+**A. Enable hermetic build and prefetch (if not already enabled):**
 
-Find and remove these parameters from the `spec.params` section:
+Add or ensure these parameters exist in the `spec.params` section:
 ```yaml
-# REMOVE these lines from spec.params:
   - name: hermetic
-    value: "true"  # or true
+    value: "true"
   - name: prefetch-input
-    value:
-      - type: gomod
-        path: "."
+    value: '{"type": "gomod", "path": "."}'
 ```
-
-This allows the parameters to use their default values from `pipelineSpec.params` (hermetic: "false", prefetch-input: ""), which is required for coverage builds to download the coverage server.
 
 **B. Add ENABLE_COVERAGE=true to BUILD_ARGS:**
 
@@ -329,7 +342,8 @@ Find the `build-images` task (or equivalent) and add `ENABLE_COVERAGE=true` to i
 ```
 
 **Key points**:
-- Remove `hermetic` and `prefetch-input` from spec.params to disable hermetic build and prefetching
+- **With the Go module approach, hermetic builds are now supported!**
+- Enable `hermetic: "true"` and `prefetch-input` for secure, reproducible builds
 - Add `ENABLE_COVERAGE=true` to the regular build task in PR pipeline
 - This enables coverage collection for PR builds which can be used for PR-level testing
 - No need to create a separate instrumented image task in PR pipeline - just modify the existing build task
@@ -405,19 +419,25 @@ stringData:
 
 Before committing the changes, verify all modifications are correct:
 
-**Local validation (already completed in Step 3.5):**
+**Local validation (already completed in Step 5.5):**
 - [ ] `podman build` (production) succeeds
 - [ ] `podman build --build-arg ENABLE_COVERAGE=true` (instrumented) succeeds
-- [ ] Instrumented build logs show "Building with coverage instrumentation..."
-- [ ] Production build logs show "Building production binary..."
+- [ ] Instrumented build logs show "🧪 Building with coverage instrumentation..."
+- [ ] Production build logs show "🚀 Building production binary..."
+
+**Go module setup checklist:**
+- [ ] `go.mod` has coverport dependency added
+- [ ] `go.mod` has `tool github.com/konflux-ci/coverport/instrumentation/go` line
+- [ ] `go.sum` has coverport checksums
+- [ ] `coverage_init.go` exists at the root of the module with correct build tags
 
 **File modifications checklist:**
-- [ ] `Dockerfile` has `ENABLE_COVERAGE` and `COVERAGE_SERVER_URL` build args
-- [ ] `Dockerfile` has conditional build logic with coverage flags
+- [ ] `Dockerfile` has `ENABLE_COVERAGE` build arg (removed `COVERAGE_SERVER_URL`)
+- [ ] `Dockerfile` has conditional build logic with `-tags=coverage` flag
 - [ ] `.tekton/*-push.yaml` has `build-instrumented-image` task after `prefetch-dependencies`
 - [ ] `.tekton/*-push.yaml` instrumented task uses `buildah-oci-ta` (not `buildah-remote-oci-ta`)
-- [ ] `.tekton/*-push.yaml` instrumented task has `HERMETIC: "false"` and `PREFETCH_INPUT: ""`
-- [ ] `.tekton/*-pull-request.yaml` removed `hermetic` and `prefetch-input` from spec.params
+- [ ] `.tekton/*-push.yaml` instrumented task uses `HERMETIC: $(params.hermetic)` and `PREFETCH_INPUT: $(params.prefetch-input)`
+- [ ] `.tekton/*-pull-request.yaml` has `hermetic: "true"` and `prefetch-input` enabled
 - [ ] `.tekton/*-pull-request.yaml` has `ENABLE_COVERAGE=true` in BUILD_ARGS
 - [ ] `integration-tests/pipelines/*e2e*.yaml` uses test-metadata v0.4
 - [ ] `integration-tests/pipelines/*e2e*.yaml` has `collect-and-upload-coverage` task
@@ -437,9 +457,12 @@ Before committing the changes, verify all modifications are correct:
 List all modified files with brief description of changes:
 ```
 Modified files:
-- Dockerfile: Added coverage instrumentation support
-- .tekton/<name>-push.yaml: Added instrumented image build task
-- .tekton/<name>-pull-request.yaml: Enabled coverage for PR builds
+- coverage_init.go: NEW - Coverage initialization with build tags
+- go.mod: Added coverport dependency and tool directive
+- go.sum: Added coverport checksums
+- Dockerfile: Added coverage instrumentation with build tags
+- .tekton/<name>-push.yaml: Added instrumented image build task with hermetic support
+- .tekton/<name>-pull-request.yaml: Enabled coverage and hermetic builds for PR builds
 - integration-tests/pipelines/<name>-e2e-pipeline.yaml: Added coverage collection
 - .github/workflows/pr.yml: Added unit-tests flag
 - .github/workflows/codecov.yml: Added unit-tests flag
@@ -452,7 +475,7 @@ After integration is deployed to CI/CD, provide these verification steps to the 
 1. **Check instrumented image build:**
    - Push a commit to main branch
    - Verify the push pipeline creates an image with `.instrumented` tag
-   - Check build logs for "Building with coverage instrumentation..." message
+   - Check build logs for "🧪 Building with coverage instrumentation..." message
 
 2. **Check e2e coverage collection:**
    - Run e2e tests
@@ -468,21 +491,36 @@ After integration is deployed to CI/CD, provide these verification steps to the 
 
 Common issues and solutions:
 
-**Build error: "named files must all be in one directory"**
-- **Cause**: Go build was called with files from different directories (e.g., `go build cmd/main.go coverage_server.go`)
-- **Solution**: Use package-based build instead of file-based build:
-  - Download coverage_server.go to the same directory as main.go: `wget ... -O <source-dir>/coverage_server.go`
-  - Build using package path: `go build -o manager ./<source-dir>` instead of `go build -o manager <source-dir>/main.go coverage_server.go`
-- **Example**: If main.go is in `cmd/`, use `wget ... -O cmd/coverage_server.go` and `go build ./cmd`
+**Build error: "coverage_init.go not found" or "package not imported"**
+- **Cause**: The `coverage_init.go` file is missing or in the wrong location
+- **Solution**:
+  - Ensure `coverage_init.go` exists at the root of your Go module (same directory as `main.go`)
+  - Verify the file has the correct `//go:build coverage` build tag
+  - Check that the package declaration matches your main package (`package main`)
+
+**Build error: "cannot find package"**
+- **Cause**: Coverport dependency not properly added to Go modules
+- **Solution**:
+  - Run `go get github.com/konflux-ci/coverport/instrumentation/go`
+  - Verify `go.mod` has the coverport dependency
+  - Verify `go.mod` has the `tool github.com/konflux-ci/coverport/instrumentation/go` line
+  - Run `go mod tidy` to clean up dependencies
 
 **Instrumented build fails:**
-- Verify `COVERAGE_SERVER_URL` is accessible
-- Check that `wget` is available in the builder image
-- Ensure hermetic mode is disabled for instrumented builds (`HERMETIC: "false"`)
-- For PR pipeline: Ensure `hermetic` and `prefetch-input` params are removed from spec.params section
-- Verify the download path matches the source directory
+- Verify coverport Go module dependency is in `go.mod` and `go.sum`
+- Check that `coverage_init.go` has the correct build tag syntax (`//go:build coverage`, not `// +build coverage`)
+- Ensure the Dockerfile build command includes `-tags=coverage`
+- Verify hermetic mode is enabled with proper prefetch configuration
 - Ensure you're using `buildah-oci-ta` for instrumented builds in push pipeline, not `buildah-remote-oci-ta`
 - Verify there's no matrix build or PLATFORM parameter for the instrumented image task
+
+**Hermetic build fails with "cannot download dependencies"**
+- **Cause**: Go module dependencies not properly prefetched
+- **Solution**:
+  - Ensure `hermetic: "true"` is set in the pipeline parameters
+  - Verify `prefetch-input` is set correctly: `{"type": "gomod", "path": "."}`
+  - Check that the `prefetch-dependencies` task completed successfully
+  - Review prefetch task logs for any download errors
 
 **Coverage data not uploaded:**
 - Verify `coverport-secrets` exists in your tenant namespace (the namespace where your build and integration pipelines run)
@@ -493,26 +531,23 @@ Common issues and solutions:
 
 **Coverage data incomplete:**
 - Verify e2e tests are using the instrumented image (check image tag has `.instrumented` suffix)
-- Ensure coverage server is properly included in the build
+- Ensure coverage server is properly included in the build (check that `-tags=coverage` is used)
 - Check that the correct binaries are instrumented
-- Verify coverage_server.go was downloaded to the correct directory
+- Verify `coverage_init.go` exists and has the correct import
 
 **E2E tests pass but no coverage data collected:**
 - Verify the e2e tests are actually **running the instrumented binary/container**
-- If tests build from source (e.g., `make build`), the build process must include `-cover` flags
+- If tests build from source (e.g., `make build`), the build process must include `-cover -tags=coverage` flags
 - Check that `GOCOVERDIR` environment variable is set in the running container/process
 - Verify the coverage collection task can access the cluster where instrumented app runs
 - Review coverage collection task logs for connection or permission errors
 
-**Local podman/docker build fails with wget error:**
-- The builder image may not have `wget` installed
-- Try using `curl` instead: `curl -sL "$COVERAGE_SERVER_URL" -o coverage_server.go`
-- Or install wget in the Dockerfile: `RUN microdnf install -y wget` (for UBI images)
-
-**Build fails with "no such file or directory" for coverage_server.go:**
-- Verify the download path matches where you're building from
-- Check that the conditional logic properly downloads before building
-- Ensure the path in `wget -O <path>` matches the build directory structure
+**Production build includes coverage code:**
+- **Cause**: Missing or incorrect build tags
+- **Solution**:
+  - Verify `coverage_init.go` has `//go:build coverage` at the top
+  - Ensure production builds do NOT include `-tags=coverage`
+  - The coverage code should only be included when `ENABLE_COVERAGE=true`
 
 ## Best Practices
 
@@ -528,13 +563,25 @@ Common issues and solutions:
 
 ## Reference Implementation
 
-The reference implementation can be found in the `release-service` repository, commits `1b2208f..dbf965d`.
+The reference implementation can be found in the `release-service` repository:
+- **Initial implementation (wget approach)**: commits `1b2208f..dbf965d`
+- **Updated implementation (Go module approach)**: commit `5ed6752` - "fix: use coverport as go module"
 
-Key files modified:
-- `Dockerfile` - Added coverage instrumentation
-- `.tekton/release-service-push.yaml` - Added instrumented image build
+Key files modified in the Go module approach:
+- `coverage_init.go` - NEW: Coverage initialization file with build tags
+- `go.mod` - Added coverport dependency and tool directive
+- `go.sum` - Added coverport checksums
+- `Dockerfile` - Updated to use `-tags=coverage` instead of downloading files
+- `.tekton/release-service-push.yaml` - Updated to support hermetic builds for instrumented images
+- `.tekton/release-service-pull-request.yaml` - Enabled hermetic builds and prefetch
 - `integration-tests/pipelines/konflux-e2e-tests-pipeline.yaml` - Updated to use test-metadata v0.4 and added coverage collection
 - `.github/workflows/codecov.yml` and `.github/workflows/pr.yml` - Added codecov flags
+
+**Key changes in Go module approach:**
+- No more `wget` to download coverage_server.go during build
+- Coverport is a proper Go module dependency
+- Hermetic builds are now supported
+- Cleaner separation using Go build tags
 
 **Note**: The `release-service` repository uses the `rhtap-release-2-tenant` namespace, which is specific to that repository. When implementing coverport for other repositories, use the appropriate tenant namespace where that repository's build and integration pipelines run.
 
@@ -544,48 +591,68 @@ Key files modified:
 
 For a repository that builds one binary (`manager`) where main.go is in the root directory:
 
+**Step 1: Add Go module dependency**
+```bash
+go get github.com/konflux-ci/coverport/instrumentation/go
+```
+
+**Step 2: Add to go.mod**
+```go
+tool github.com/konflux-ci/coverport/instrumentation/go
+```
+
+**Step 3: Create coverage_init.go at the root**
+```go
+//go:build coverage
+
+package main
+
+import _ "github.com/konflux-ci/coverport/instrumentation/go"
+```
+
+**Step 4: Update Dockerfile**
 ```dockerfile
 # Before
 RUN CGO_ENABLED=0 go build -a -o manager main.go
 
 # After
 ARG ENABLE_COVERAGE=false
-ARG COVERAGE_SERVER_URL=https://raw.githubusercontent.com/konflux-ci/coverport/v0.0.1/instrumentation/go/coverage_server.go
 
 RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
-        wget -q "$COVERAGE_SERVER_URL" -O coverage_server.go; \
-        CGO_ENABLED=0 go build -cover -covermode=atomic -a -o manager main.go coverage_server.go; \
+        CGO_ENABLED=0 go build -cover -covermode=atomic -tags=coverage -o manager .; \
     else \
-        CGO_ENABLED=0 go build -a -o manager main.go; \
+        CGO_ENABLED=0 go build -a -o manager .; \
     fi
 ```
 
-### Example 2: Multiple Binaries (main.go in subdirectory)
+### Example 2: Multiple Binaries
 
-For a repository that builds `manager` (from cmd/main.go) and `snapshotgc`, where only `manager` needs coverage:
+For a repository that builds `manager` and `snapshotgc`, where only `manager` needs coverage:
 
+**Steps 1-3: Same as Example 1** (add Go module, update go.mod, create coverage_init.go)
+
+**Step 4: Update Dockerfile**
 ```dockerfile
 # Before
-RUN CGO_ENABLED=0 go build -a -o manager cmd/main.go \
- && CGO_ENABLED=0 go build -a -o snapshotgc cmd/snapshotgc/snapshotgc.go
+RUN CGO_ENABLED=0 go build -a -o manager . \
+ && CGO_ENABLED=0 go build -a -o snapshotgc ./cmd/snapshotgc
 
 # After
 ARG ENABLE_COVERAGE=false
-ARG COVERAGE_SERVER_URL=https://raw.githubusercontent.com/konflux-ci/coverport/v0.0.1/instrumentation/go/coverage_server.go
 
 RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
-        wget -q "$COVERAGE_SERVER_URL" -O cmd/coverage_server.go; \
-        CGO_ENABLED=0 go build -cover -covermode=atomic -a -o manager ./cmd; \
+        CGO_ENABLED=0 go build -cover -covermode=atomic -tags=coverage -o manager .; \
     else \
-        CGO_ENABLED=0 go build -a -o manager ./cmd; \
+        CGO_ENABLED=0 go build -a -o manager .; \
     fi \
- && CGO_ENABLED=0 go build -a -o snapshotgc cmd/snapshotgc/snapshotgc.go
+ && CGO_ENABLED=0 go build -a -o snapshotgc ./cmd/snapshotgc
 ```
 
 **Note**:
-- coverage_server.go is downloaded to the `cmd/` directory where main.go lives
-- Package-based build (`./cmd`) is used instead of file-based build to avoid "named files must all be in one directory" error
+- The `-tags=coverage` flag includes the `coverage_init.go` file
+- Package-based build (`.`) is used
 - snapshotgc binary is built separately without coverage instrumentation
+- No external file downloads needed - coverport is a Go module dependency
 
 ## Summary
 
@@ -593,20 +660,25 @@ This skill automates coverport integration by:
 1. Running pre-integration repository scan to understand structure
 2. Analyzing the repository structure in detail
 3. Asking clarifying questions about binaries, secrets, and storage
-4. Modifying the Dockerfile to support coverage builds
-5. **Validating Dockerfile changes locally with podman/docker builds**
-6. Adding instrumented image build to Tekton push pipeline
-7. Updating e2e pipeline to use test-metadata v0.4 and instrumented images
-8. Adding coverage collection task to e2e pipeline
-9. Updating PR pipeline to build with coverage instrumentation
-10. Updating GitHub Actions to add codecov flags
-11. Providing comprehensive post-integration validation checklist
-12. Providing documentation for manual secret creation
+4. **Adding coverport as a Go module dependency** (NEW: enables hermetic builds!)
+5. **Creating coverage_init.go with build tags** (NEW: cleaner approach)
+6. Modifying the Dockerfile to support coverage builds with build tags
+7. **Validating Dockerfile changes locally with podman/docker builds**
+8. Adding instrumented image build to Tekton push pipeline with hermetic support
+9. Updating e2e pipeline to use test-metadata v0.4 and instrumented images
+10. Adding coverage collection task to e2e pipeline
+11. Updating PR pipeline to build with coverage instrumentation and hermetic builds
+12. Updating GitHub Actions to add codecov flags
+13. Providing comprehensive post-integration validation checklist
+14. Providing documentation for manual secret creation
 
 The integration enables automatic e2e test coverage collection and upload to Codecov with proper flag separation from unit tests.
 
-**Key improvements in this skill:**
+**Key improvements in this version:**
+- **Hermetic builds**: Go module approach enables secure, reproducible hermetic builds
+- **No external downloads**: Coverage server is a Go module dependency, not downloaded during build
+- **Build tags**: Clean separation of coverage code using Go build tags
 - **Early validation**: Podman/docker builds catch issues before CI/CD changes
 - **Clear checklists**: Pre and post-integration checklists ensure nothing is missed
 - **Better guidance**: Clarifies when e2e image references need updating vs source builds
-- **Enhanced troubleshooting**: Covers common scenarios encountered during integration
+- **Enhanced troubleshooting**: Covers common scenarios including Go module issues
