@@ -89,15 +89,8 @@ Add coverport to your Go module dependencies:
 go get github.com/konflux-ci/coverport/instrumentation/go
 ```
 
-Then manually add it as a tool dependency in `go.mod`:
-
-```go
-tool github.com/konflux-ci/coverport/instrumentation/go
-```
-
 This will:
 - Add the coverport package to `go.mod` as a dependency
-- Mark it as a tool dependency in `go.mod`
 - Update `go.sum` with the dependency checksums
 
 ### Step 4: Create coverage_init.go File
@@ -136,10 +129,10 @@ ARG ENABLE_COVERAGE=false
 ```dockerfile
 # Build with or without coverage instrumentation
 RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
-        echo "🧪 Building with coverage instrumentation..."; \
+        echo "Building with coverage instrumentation..."; \
         CGO_ENABLED=0 go build -cover -covermode=atomic -tags=coverage -o <binary-name> .; \
     else \
-        echo "🚀 Building production binary..."; \
+        echo "Building production binary..."; \
         CGO_ENABLED=0 go build -a -o <binary-name> .; \
     fi
 ```
@@ -168,10 +161,10 @@ podman images | grep test-
 ```
 
 **Expected output in instrumented build:**
-- "🧪 Building with coverage instrumentation..."
+- "Building with coverage instrumentation..."
 
 **Expected output in production build:**
-- "🚀 Building production binary..."
+- "Building production binary..."
 
 **If builds fail:**
 - Stop and fix the Dockerfile before proceeding
@@ -422,12 +415,11 @@ Before committing the changes, verify all modifications are correct:
 **Local validation (already completed in Step 5.5):**
 - [ ] `podman build` (production) succeeds
 - [ ] `podman build --build-arg ENABLE_COVERAGE=true` (instrumented) succeeds
-- [ ] Instrumented build logs show "🧪 Building with coverage instrumentation..."
-- [ ] Production build logs show "🚀 Building production binary..."
+- [ ] Instrumented build logs show "Building with coverage instrumentation..."
+- [ ] Production build logs show "Building production binary..."
 
 **Go module setup checklist:**
 - [ ] `go.mod` has coverport dependency added
-- [ ] `go.mod` has `tool github.com/konflux-ci/coverport/instrumentation/go` line
 - [ ] `go.sum` has coverport checksums
 - [ ] `coverage_init.go` exists at the root of the module with correct build tags
 
@@ -458,7 +450,7 @@ List all modified files with brief description of changes:
 ```
 Modified files:
 - coverage_init.go: NEW - Coverage initialization with build tags
-- go.mod: Added coverport dependency and tool directive
+- go.mod: Added coverport dependency
 - go.sum: Added coverport checksums
 - Dockerfile: Added coverage instrumentation with build tags
 - .tekton/<name>-push.yaml: Added instrumented image build task with hermetic support
@@ -475,7 +467,7 @@ After integration is deployed to CI/CD, provide these verification steps to the 
 1. **Check instrumented image build:**
    - Push a commit to main branch
    - Verify the push pipeline creates an image with `.instrumented` tag
-   - Check build logs for "🧪 Building with coverage instrumentation..." message
+   - Check build logs for "Building with coverage instrumentation..." message
 
 2. **Check e2e coverage collection:**
    - Run e2e tests
@@ -503,7 +495,6 @@ Common issues and solutions:
 - **Solution**:
   - Run `go get github.com/konflux-ci/coverport/instrumentation/go`
   - Verify `go.mod` has the coverport dependency
-  - Verify `go.mod` has the `tool github.com/konflux-ci/coverport/instrumentation/go` line
   - Run `go mod tidy` to clean up dependencies
 
 **Instrumented build fails:**
@@ -569,7 +560,7 @@ The reference implementation can be found in the `release-service` repository:
 
 Key files modified in the Go module approach:
 - `coverage_init.go` - NEW: Coverage initialization file with build tags
-- `go.mod` - Added coverport dependency and tool directive
+- `go.mod` - Added coverport dependency
 - `go.sum` - Added coverport checksums
 - `Dockerfile` - Updated to use `-tags=coverage` instead of downloading files
 - `.tekton/release-service-push.yaml` - Updated to support hermetic builds for instrumented images
@@ -596,12 +587,7 @@ For a repository that builds one binary (`manager`) where main.go is in the root
 go get github.com/konflux-ci/coverport/instrumentation/go
 ```
 
-**Step 2: Add to go.mod**
-```go
-tool github.com/konflux-ci/coverport/instrumentation/go
-```
-
-**Step 3: Create coverage_init.go at the root**
+**Step 2: Create coverage_init.go at the root**
 ```go
 //go:build coverage
 
@@ -610,7 +596,7 @@ package main
 import _ "github.com/konflux-ci/coverport/instrumentation/go"
 ```
 
-**Step 4: Update Dockerfile**
+**Step 3: Update Dockerfile**
 ```dockerfile
 # Before
 RUN CGO_ENABLED=0 go build -a -o manager main.go
@@ -629,9 +615,9 @@ RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
 
 For a repository that builds `manager` and `snapshotgc`, where only `manager` needs coverage:
 
-**Steps 1-3: Same as Example 1** (add Go module, update go.mod, create coverage_init.go)
+**Steps 1-2: Same as Example 1** (add Go module, create coverage_init.go)
 
-**Step 4: Update Dockerfile**
+**Step 3: Update Dockerfile**
 ```dockerfile
 # Before
 RUN CGO_ENABLED=0 go build -a -o manager . \
