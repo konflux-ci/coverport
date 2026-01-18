@@ -3,7 +3,7 @@ module github.com/konflux-ci/coverport/cli
 go 1.24.0
 
 require (
-	github.com/opencontainers/image-spec v1.1.0
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/spf13/cobra v1.8.1
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
