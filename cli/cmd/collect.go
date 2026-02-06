@@ -23,17 +23,21 @@ import (
 
 var collectCmd = &cobra.Command{
 	Use:   "collect",
-	Short: "Collect coverage from Kubernetes pods",
-	Long: `Collect coverage data from instrumented Go applications running in Kubernetes.
+	Short: "Collect coverage from Kubernetes pods or HTTP endpoints",
+	Long: `Collect coverage data from instrumented Go applications running in Kubernetes or from local HTTP endpoints.
 
 This command can discover pods in multiple ways:
-  1. By Konflux/Tekton SNAPSHOT (recommended for CI/CD)
-  2. By explicit list of container images
-  3. By label selector
-  4. By explicit pod names
+  1. By direct HTTP URL (for local development or non-Kubernetes deployments)
+  2. By Konflux/Tekton SNAPSHOT (recommended for CI/CD)
+  3. By explicit list of container images
+  4. By label selector
+  5. By explicit pod names
 
 Coverage data is organized by component and can be automatically pushed to an OCI registry.`,
-	Example: `  # Collect using Konflux snapshot
+	Example: `  # Collect from localhost (for local development)
+  coverport collect --url http://localhost:9095 --test-name my-local-test
+
+  # Collect using Konflux snapshot
   coverport collect --snapshot='{"components":[{"name":"app","containerImage":"quay.io/user/app@sha256:abc"}]}'
 
   # Collect from specific images
@@ -50,6 +54,7 @@ Coverage data is organized by component and can be automatically pushed to an OC
 
 var (
 	// Discovery options
+	coverageURL   string
 	snapshotJSON  string
 	snapshotFile  string
 	images        []string
@@ -86,6 +91,7 @@ func init() {
 	rootCmd.AddCommand(collectCmd)
 
 	// Discovery options
+	collectCmd.Flags().StringVar(&coverageURL, "url", "", "Direct HTTP URL to coverage server (e.g., http://localhost:9095)")
 	collectCmd.Flags().StringVar(&snapshotJSON, "snapshot", "", "Konflux/Tekton snapshot JSON")
 	collectCmd.Flags().StringVar(&snapshotFile, "snapshot-file", "", "Path to snapshot JSON file")
 	collectCmd.Flags().StringSliceVar(&images, "images", nil, "Comma-separated list of container images")
@@ -127,6 +133,9 @@ func runCollect(cmd *cobra.Command, args []string) {
 
 	// Validate inputs
 	discoveryMethods := 0
+	if coverageURL != "" {
+		discoveryMethods++
+	}
 	if snapshotJSON != "" {
 		discoveryMethods++
 	}
@@ -144,10 +153,10 @@ func runCollect(cmd *cobra.Command, args []string) {
 	}
 
 	if discoveryMethods == 0 {
-		exitWithError("No discovery method specified. Use --snapshot, --images, --label-selector, or --pods")
+		exitWithError("No discovery method specified. Use --url, --snapshot, --images, --label-selector, or --pods")
 	}
 	if discoveryMethods > 1 {
-		exitWithError("Multiple discovery methods specified. Use only one of: --snapshot, --images, --label-selector, or --pods")
+		exitWithError("Multiple discovery methods specified. Use only one of: --url, --snapshot, --images, --label-selector, or --pods")
 	}
 
 	if push && repository == "" {
@@ -172,8 +181,18 @@ func runCollect(cmd *cobra.Command, args []string) {
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("Test Name:     %s\n", testName)
 	fmt.Printf("Output Dir:    %s\n", outputDir)
-	fmt.Printf("Coverage Port: %d\n", coveragePort)
+	if coverageURL != "" {
+		fmt.Printf("Coverage URL:  %s\n", coverageURL)
+	} else {
+		fmt.Printf("Coverage Port: %d\n", coveragePort)
+	}
 	fmt.Println(strings.Repeat("=", 60))
+
+	// Handle direct URL collection (bypass Kubernetes)
+	if coverageURL != "" {
+		collectFromURL(ctx, verbose)
+		return
+	}
 
 	// Setup Kubernetes client
 	clientset, restConfig := setupKubeClient()
@@ -489,6 +508,59 @@ func pushCoverageArtifact(ctx context.Context, pods []discovery.PodInfo) error {
 	}
 
 	return nil
+}
+
+func collectFromURL(ctx context.Context, verbose bool) {
+	fmt.Printf("\n📡 Collecting coverage from URL: %s\n", coverageURL)
+
+	// Create coverage client (without Kubernetes)
+	client, err := coverageclient.NewClientForURL(outputDir)
+	if err != nil {
+		exitWithError("Failed to create coverage client: %v", err)
+	}
+
+	// Set filters on the client
+	client.SetDefaultFilters(filters)
+
+	// Collect coverage from URL
+	fmt.Printf("  🔄 Sending coverage collection request...\n")
+	if err := client.CollectCoverageFromURL(coverageURL, testName); err != nil {
+		exitWithError("Failed to collect coverage from URL: %v", err)
+	}
+
+	printSuccess("Coverage collected from URL")
+	fmt.Printf("  📂 Output: %s/%s\n", outputDir, testName)
+
+	// Create a simple manifest for URL-based collection
+	componentName := "direct-url"
+	collectionManifest := manifest.NewCollectionManifest(testName, manifest.CollectionParameters{
+		CoveragePort: 0, // Not applicable for URL collection
+		Filters:      filters,
+		Format:       "go",
+		Namespace:    "",
+	})
+
+	// Add component info for the URL collection
+	collectionManifest.AddComponent(manifest.ComponentInfo{
+		Name:        componentName,
+		Image:       coverageURL, // Store the URL in the image field for reference
+		CoverageDir: testName,    // Store relative path, will be joined with coverageDir during processing
+		Namespace:   "",
+		PodName:     "",
+		CollectedAt: time.Now().Format(time.RFC3339),
+	})
+
+	// Save manifest
+	if err := collectionManifest.Save(outputDir); err != nil {
+		printWarning("Failed to save manifest: %v", err)
+	} else {
+		fmt.Printf("  📋 Manifest saved: %s/metadata.json\n", outputDir)
+	}
+
+	fmt.Println("\n✅ Coverage collection complete!")
+	fmt.Printf("📊 Coverage output: %s\n", outputDir)
+	fmt.Printf("🔍 To process and upload coverage, run:\n")
+	fmt.Printf("   coverport process --coverage-dir=%s\n", outputDir)
 }
 
 func truncateImage(image string) string {

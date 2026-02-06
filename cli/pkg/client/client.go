@@ -121,6 +121,31 @@ func NewClient(namespace, outputDir string) (*CoverageClient, error) {
 	}, nil
 }
 
+// NewClientForURL creates a coverage client for URL-based collection (without Kubernetes)
+func NewClientForURL(outputDir string) (*CoverageClient, error) {
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return nil, fmt.Errorf("create output directory: %w", err)
+	}
+
+	// Get current working directory as default source directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+
+	return &CoverageClient{
+		clientset:       nil, // No Kubernetes client needed
+		restConfig:      nil,
+		namespace:       "",
+		outputDir:       outputDir,
+		httpClient:      &http.Client{Timeout: 30 * time.Second},
+		defaultFilters:  []string{"coverage_server.go"},
+		sourceDir:       cwd,
+		enablePathRemap: true,
+	}, nil
+}
+
 // SetDefaultFilters configures which files to automatically filter from coverage reports
 func (c *CoverageClient) SetDefaultFilters(patterns []string) {
 	c.defaultFilters = patterns

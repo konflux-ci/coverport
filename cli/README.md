@@ -1,9 +1,10 @@
 # coverport - Universal Coverage Tool for Konflux Pipelines
 
-`coverport` is a comprehensive CLI tool for collecting, processing, and uploading coverage data from instrumented applications running in Kubernetes. It's specifically designed for Konflux/Tekton integration pipelines and replaces complex bash scripts with simple, maintainable commands.
+`coverport` is a comprehensive CLI tool for collecting, processing, and uploading coverage data from instrumented applications. It supports both Kubernetes-based collection (ideal for CI/CD pipelines) and direct HTTP collection (perfect for local development). Specifically designed for Konflux/Tekton integration pipelines.
 
 ## Features
 
+- **🌐 Direct URL Collection**: Collect from localhost or any HTTP endpoint (no Kubernetes required)
 - **🔍 Image-based Pod Discovery**: Automatically find pods running specific container images
 - **📦 Konflux Snapshot Support**: Parse Tekton/Konflux snapshots to discover all components
 - **🎯 Multi-Component Collection**: Collect coverage from multiple services in one command
@@ -31,6 +32,25 @@ go install github.com/konflux-ci/coverport/cli@latest
 ```
 
 ## Quick Start
+
+### Collect Coverage from Localhost (Local Development)
+
+Perfect for local development and testing:
+
+```bash
+# Start your app with coverage instrumentation on port 8080
+# (with coverage server on port 9095)
+
+# Collect coverage directly
+coverport collect \
+  --url http://localhost:9095 \
+  --test-name="local-e2e-test" \
+  --output=./coverage-output
+
+# View results
+go tool covdata textfmt -i=./coverage-output/local-e2e-test -o=coverage.out
+go tool cover -func=coverage.out
+```
 
 ### Collect Coverage in Konflux Pipeline
 
@@ -68,15 +88,18 @@ coverport discover --snapshot="$SNAPSHOT"
 
 ### `coverport collect`
 
-Collect raw coverage data from Kubernetes pods.
+Collect raw coverage data from HTTP endpoints or Kubernetes pods.
 
 **Discovery Methods** (choose one):
 
+- `--url` - Direct HTTP URL to coverage server (e.g., `http://localhost:9095`) - **New!**
 - `--snapshot` - Konflux/Tekton snapshot JSON (recommended for CI/CD)
 - `--snapshot-file` - Path to snapshot JSON file
 - `--images` - Comma-separated list of container images
 - `--label-selector` - Label selector to find pods
 - `--pods` - Comma-separated list of explicit pod names
+
+> **Note**: The `--url` flag enables local development workflows without requiring Kubernetes. Perfect for testing coverage collection locally before deploying to CI/CD. See [URL_COLLECTION.md](URL_COLLECTION.md) for details.
 
 **Coverage Options:**
 
@@ -251,7 +274,7 @@ Add this task to your Tekton pipeline after running tests:
             --registry=quay.io \
             --repository=myorg/coverage-artifacts \
             --tag="coverage-$(date +%Y%m%d-%H%M%S)"
-          
+
           echo "Coverage collection complete!"
 ```
 

@@ -159,7 +159,7 @@ func processFromManifest(ctx context.Context, cmd *cobra.Command, verbose bool) 
 
 		// Process this component
 		componentCoverageDir := filepath.Join(coverageDir, component.CoverageDir)
-		if err := processComponent(ctx, component, componentCoverageDir, componentWorkspace, verbose); err != nil {
+		if err := processComponent(ctx, component, componentCoverageDir, componentWorkspace, repoURL, commitSHA, verbose); err != nil {
 			printWarning("Failed to process %s: %v", component.Name, err)
 			failedComponents = append(failedComponents, component.Name)
 		} else {
@@ -195,11 +195,27 @@ func processFromManifest(ctx context.Context, cmd *cobra.Command, verbose bool) 
 }
 
 // processComponent processes a single component
-func processComponent(ctx context.Context, component manifest.ComponentInfo, coverageDir, workspace string, verbose bool) error {
-	// Extract git metadata from image
-	gitMeta, err := extractGitMetadata(ctx, component.Image, verbose)
-	if err != nil {
-		return fmt.Errorf("extract git metadata: %w", err)
+func processComponent(ctx context.Context, component manifest.ComponentInfo, coverageDir, workspace, overrideRepoURL, overrideCommitSHA string, verbose bool) error {
+	var gitMeta *metadata.GitMetadata
+	var err error
+
+	// Check if git metadata is provided via CLI flags
+	if overrideRepoURL != "" && overrideCommitSHA != "" {
+		// Use provided git information (for URL-based collection or manual override)
+		gitMeta = &metadata.GitMetadata{
+			RepoURL:   overrideRepoURL,
+			CommitSHA: overrideCommitSHA,
+		}
+		printInfo("Using provided git metadata: %s @ %s", overrideRepoURL, overrideCommitSHA[:8])
+	} else if isHTTPURL(component.Image) {
+		// Image is a URL (from --url collection), not a container image
+		return fmt.Errorf("image is a URL (%s), not a container image. Please provide --repo-url and --commit-sha", component.Image)
+	} else {
+		// Extract git metadata from container image using cosign
+		gitMeta, err = extractGitMetadata(ctx, component.Image, verbose)
+		if err != nil {
+			return fmt.Errorf("extract git metadata: %w", err)
+		}
 	}
 
 	// Clone repository
@@ -641,4 +657,9 @@ func readArtifactMetadata(artifactDir string) (map[string]interface{}, error) {
 	}
 
 	return metadata, nil
+}
+
+// isHTTPURL checks if a string is an HTTP or HTTPS URL
+func isHTTPURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
