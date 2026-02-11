@@ -46,7 +46,7 @@ curl -o ~/.claude/skills/codecov-onboarding/SKILL.md \
 
 2. **Start Claude Code** and simply ask:
    ```
-   I want to onboard my repository to Codecov for unit test coverage.
+   I want to onboard my repository to Codecov for unit test coverage using the codecov-onboarding skill.
    ```
 
 3. **Follow the prompts** - Claude will:
@@ -92,7 +92,7 @@ curl -o ~/.cursor/rules/codecov-onboarding.md \
 
 2. **Ask Cursor:**
    ```
-   I want to onboard my repository to Codecov for unit test coverage.
+   I want to onboard my repository to Codecov for unit test coverage using the codecov-onboarding skill
    ```
 
 3. **Follow the prompts** - Cursor will guide you through the onboarding process.
