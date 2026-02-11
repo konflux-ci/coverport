@@ -43,20 +43,26 @@ I'll help you onboard your repository to Codecov. Let me start with a few questi
 1. **Codecov Account**: Have you signed up at https://app.codecov.io using your GitHub/GitLab account?
    - If NO: Please sign up first, then come back.
 
-2. **Repository Added**: Is your repository already added to Codecov?
-   - If NO: Go to Codecov → Your Org → Click "Configure" on your repo to add it.
+2. **Upstream vs Fork**: Are you onboarding the upstream (main) repository or a personal fork?
+   - ⚠️ **Important:** You should onboard the **upstream repository**, not your fork.
+   - Coverage should be tracked on the main project where PRs are merged.
+   - Forks inherit coverage data from the upstream repo automatically.
+   - If you only have a fork, coordinate with the upstream maintainers to onboard the main repo.
 
-3. **Upload Token**: Do you have your Codecov upload token ready?
+3. **Repository Added**: Is the upstream repository already added to Codecov?
+   - If NO: Go to Codecov → Your Org → Click "Configure" on the repo to add it.
+
+4. **Upload Token**: Do you have your Codecov upload token ready?
    - Repository token: Found in Codecov UI → Your Repo → Configure → "Step 3: add token"
    - Global token: Organization Settings → Global Upload Token (requires org admin)
 
-4. **CI System**: Which CI system runs your unit tests?
+5. **CI System**: Which CI system runs your unit tests?
    - GitHub Actions
    - OpenShift CI (Prow)
    - GitLab CI
    - Other (please specify)
 
-5. **Existing Coverage**: Do you already have any Codecov setup (even partial)?
+6. **Existing Coverage**: Do you already have any Codecov setup (even partial)?
    - If YES: What's currently configured? (helps me understand what needs updating)
 ```
 
