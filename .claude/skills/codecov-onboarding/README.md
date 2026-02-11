@@ -27,7 +27,9 @@ This guide helps you install an AI skill - a specialized workflow that teaches t
 
 ## Option A: Claude Code
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
+**Requirements:**
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
+- Minimum version: **2.1.39** (check with `claude --version`)
 
 ### Setup (One-Time)
 
@@ -38,6 +40,15 @@ mkdir -p ~/.claude/skills/codecov-onboarding
 # Download the skill
 curl -o ~/.claude/skills/codecov-onboarding/SKILL.md \
   https://raw.githubusercontent.com/konflux-ci/coverport/main/.claude/skills/codecov-onboarding/SKILL.md
+```
+
+### Verify Installation
+
+In Claude Code, type `/skills` to verify the skill is available:
+
+```
+ User skills (~/.claude/skills)
+ codecov-onboarding · ~72 description tokens
 ```
 
 ### Usage
