@@ -61,8 +61,8 @@ func DetectFormat(inputDir string) (CoverageFormat, error) {
 			hasGoCoverage = true
 		}
 
-		// Check for Python coverage
-		if name == ".coverage" || name == "coverage.xml" {
+		// Check for Python coverage (.coverage or .coverage_*)
+		if name == ".coverage" || strings.HasPrefix(name, ".coverage_") || name == "coverage.xml" {
 			hasPythonCoverage = true
 		}
 
@@ -194,14 +194,143 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 	return nil
 }
 
-// processPythonCoverage processes Python coverage data (future implementation)
+// processPythonCoverage processes Python coverage data
 func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts ProcessOptions) error {
 	fmt.Println("🔄 Processing Python coverage data...")
+	fmt.Printf("   Input: %s\n", opts.InputDir)
+	fmt.Printf("   Output: %s\n", opts.OutputFile)
 
-	// TODO: Implement Python coverage processing
-	// This would use the Python coverage package to convert .coverage to XML/JSON
+	// Find the .coverage file
+	coverageFile := filepath.Join(opts.InputDir, ".coverage")
+	if _, err := os.Stat(coverageFile); os.IsNotExist(err) {
+		// Try to find any .coverage* file
+		entries, err := os.ReadDir(opts.InputDir)
+		if err != nil {
+			return fmt.Errorf("read input directory: %w", err)
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".coverage") {
+				coverageFile = filepath.Join(opts.InputDir, entry.Name())
+				break
+			}
+		}
+	}
 
-	return fmt.Errorf("Python coverage processing not yet implemented")
+	if _, err := os.Stat(coverageFile); os.IsNotExist(err) {
+		return fmt.Errorf("no .coverage file found in %s", opts.InputDir)
+	}
+
+	fmt.Printf("   Found coverage file: %s\n", coverageFile)
+
+	// Check for Python
+	pythonPath, err := exec.LookPath("python")
+	if err != nil {
+		pythonPath, err = exec.LookPath("python3")
+		if err != nil {
+			return fmt.Errorf("python not found (required for processing Python coverage): %w", err)
+		}
+	}
+
+	// Create output directory
+	if err := os.MkdirAll(filepath.Dir(opts.OutputFile), 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Convert paths to absolute
+	absCoverageFile, err := filepath.Abs(coverageFile)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for coverage file: %w", err)
+	}
+
+	absOutputFile, err := filepath.Abs(opts.OutputFile)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for output file: %w", err)
+	}
+
+	// Generate XML report using Python's coverage tool
+	fmt.Println("   Converting coverage to XML format...")
+	cmd := exec.CommandContext(ctx, pythonPath, "-m", "coverage", "xml",
+		"--data-file="+absCoverageFile,
+		"-o", absOutputFile)
+
+	// Run from repo root for proper path resolution
+	if opts.RepoRoot != "" {
+		cmd.Dir = opts.RepoRoot
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to convert Python coverage to XML: %w\nOutput: %s", err, string(output))
+	}
+
+	// Verify output file was created
+	if _, err := os.Stat(opts.OutputFile); err != nil {
+		return fmt.Errorf("coverage XML file was not created: %w", err)
+	}
+
+	fmt.Printf("   ✅ Coverage XML generated: %s\n", opts.OutputFile)
+
+	// Optionally generate text report for summary
+	textReportFile := strings.TrimSuffix(opts.OutputFile, filepath.Ext(opts.OutputFile)) + ".txt"
+	textCmd := exec.CommandContext(ctx, pythonPath, "-m", "coverage", "report",
+		"--data-file="+absCoverageFile)
+
+	if opts.RepoRoot != "" {
+		textCmd.Dir = opts.RepoRoot
+	}
+
+	textOutput, err := textCmd.CombinedOutput()
+	if err == nil {
+		// Save text report
+		if err := os.WriteFile(textReportFile, textOutput, 0644); err == nil {
+			fmt.Printf("   ✅ Text report generated: %s\n", textReportFile)
+		}
+
+		// Show summary (last line typically contains total)
+		lines := strings.Split(string(textOutput), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "TOTAL") {
+				parts := strings.Fields(line)
+				if len(parts) >= 4 {
+					fmt.Printf("   📊 Total coverage: %s\n", parts[len(parts)-1])
+				}
+				break
+			}
+		}
+	}
+
+	// Generate HTML report if requested
+	if opts.GenerateHTML {
+		if err := p.generatePythonHTMLReport(ctx, pythonPath, absCoverageFile, opts.RepoRoot, opts.InputDir); err != nil {
+			fmt.Printf("⚠️  Failed to generate HTML report: %v\n", err)
+		}
+	}
+
+	fmt.Println("✅ Python coverage processed successfully!")
+	return nil
+}
+
+// generatePythonHTMLReport generates an HTML coverage report for Python
+func (p *CoverageProcessor) generatePythonHTMLReport(ctx context.Context, pythonPath, coverageFile, repoRoot, outputDir string) error {
+	fmt.Println("   📊 Generating HTML coverage report...")
+
+	htmlDir := filepath.Join(outputDir, "htmlcov")
+
+	cmd := exec.CommandContext(ctx, pythonPath, "-m", "coverage", "html",
+		"--data-file="+coverageFile,
+		"-d", htmlDir)
+
+	if repoRoot != "" {
+		cmd.Dir = repoRoot
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to generate HTML report: %w\nOutput: %s", err, string(output))
+	}
+
+	fmt.Printf("   ✅ HTML report generated: %s/index.html\n", htmlDir)
+	return nil
 }
 
 // processNYCCoverage is implemented in nyc.go

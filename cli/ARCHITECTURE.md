@@ -4,6 +4,16 @@
 
 `coverport` is a command-line interface built on top of the `go-coverage-http/client` library, designed specifically for Konflux/Tekton integration pipelines and CI/CD automation.
 
+## Recent Changes
+
+**v2 Architecture Updates**:
+- Added `process` command for post-collection processing (git metadata extraction, cloning, coverage mapping, Codecov upload)
+- Introduced manifest-based workflow: `collect` creates `metadata.json` for batch processing
+- Added direct URL collection via `NewClientForURL()` for localhost/HTTP endpoints
+- Automatic PR detection from image metadata (Konflux annotations, branch patterns)
+- Intelligent path remapping with `./` prefix for Go tooling compatibility
+- HTML generation moved to `process` phase for proper source code access
+
 ## Architecture Diagram
 
 ```

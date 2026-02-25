@@ -74,6 +74,15 @@ coverport-cli/
 - Exit codes for automation
 - Progress indicators
 
+## Recent Improvements
+
+- **Direct URL Collection**: Added `--url` flag to collect coverage from localhost/HTTP endpoints without Kubernetes
+- **Manifest-Based Processing**: `collect` generates `metadata.json` for batch processing with `process` command
+- **Automatic PR Detection**: Extracts PR numbers from image metadata (Konflux annotations) or branch names
+- **Smart Path Remapping**: Automatically converts container-internal paths to repository-relative paths
+- **HTML in Process Phase**: HTML report generation moved to `process` command for proper source code access
+- **Enhanced Safety**: Added workspace overlap detection to prevent accidental data deletion
+
 ## Commands
 
 ### `coverport collect`

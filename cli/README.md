@@ -16,6 +16,15 @@
 - **📤 Codecov Integration**: Direct upload to Codecov with proper commit mapping
 - **🌍 Multi-Language Support**: Go (current), Python, and Node.js (NYC) - coming soon
 
+## Recent Improvements
+
+- **Manifest-Based Workflow**: `collect` now generates `metadata.json` for simplified batch processing
+- **Automatic PR Detection**: Extracts PR numbers from image metadata or branch names for Codecov
+- **Intelligent Path Remapping**: Automatically converts container paths (`/app/`) to repository-relative paths
+- **HTML Generation in Process**: HTML reports now generated during `process` phase with source code access
+- **Workspace Safety**: Added checks to prevent accidental data deletion during processing
+- **Git Service Auto-Detection**: Automatically detects GitHub/GitLab from repository URLs for Codecov
+
 ## Installation
 
 ### From Source

@@ -44,7 +44,7 @@ type CoverageClient struct {
 	enablePathRemap bool     // Whether to automatically remap container paths
 }
 
-// CoverageResponse matches the server's response format
+// CoverageResponse matches the Go coverage server's response format
 type CoverageResponse struct {
 	MetaFilename     string `json:"meta_filename"`
 	MetaData         string `json:"meta_data"`
@@ -53,6 +53,24 @@ type CoverageResponse struct {
 	TestName         string `json:"test_name"`
 	Timestamp        int64  `json:"timestamp"`
 }
+
+// PythonCoverageResponse matches the Python coverage server's response format
+type PythonCoverageResponse struct {
+	Label         string `json:"label"`
+	Timestamp     string `json:"timestamp"`
+	CoverageData  string `json:"coverage_data"`  // base64 encoded .coverage SQLite data
+	FilesCombined int    `json:"files_combined"` // Number of files combined (for multiprocess)
+	Message       string `json:"message"`        // Optional message
+}
+
+// CoverageFormat represents the detected coverage format
+type CoverageFormat string
+
+const (
+	FormatGo     CoverageFormat = "go"
+	FormatPython CoverageFormat = "python"
+	FormatNYC    CoverageFormat = "nyc"
+)
 
 // PodMetadata contains information about the pod from which coverage was collected
 type PodMetadata struct {
@@ -453,17 +471,11 @@ func (c *CoverageClient) setupPortForward(podName string, targetPort int) (int, 
 }
 
 // collectCoverageFromURL collects coverage from the given URL
+// Automatically detects Go or Python coverage format
 func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) error {
-	// Prepare request body
-	reqBody, err := json.Marshal(map[string]string{
-		"test_name": testName,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	// Send POST request to coverage endpoint
-	resp, err := c.httpClient.Post(coverageURL, "application/json", bytes.NewReader(reqBody))
+	// Try GET request first (Python uses GET with query param)
+	getURL := coverageURL + "?name=" + url.QueryEscape(testName)
+	resp, err := c.httpClient.Get(getURL)
 	if err != nil {
 		return fmt.Errorf("send coverage request: %w", err)
 	}
@@ -474,10 +486,86 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 		return fmt.Errorf("coverage endpoint returned %d: %s", resp.StatusCode, body)
 	}
 
-	// Parse response
+	// Read response body into buffer for format detection
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response body: %w", err)
+	}
+
+	// Detect format based on response fields
+	format := c.detectCoverageFormat(body)
+	fmt.Printf("  🔍 Detected coverage format: %s\n", format)
+
+	switch format {
+	case FormatPython:
+		return c.collectPythonCoverage(body, testName)
+	case FormatGo:
+		return c.collectGoCoverage(body, testName)
+	default:
+		return fmt.Errorf("unsupported coverage format: %s", format)
+	}
+}
+
+// detectCoverageFormat detects the coverage format from the response body
+func (c *CoverageClient) detectCoverageFormat(body []byte) CoverageFormat {
+	// Python responses contain "coverage_data" field
+	if bytes.Contains(body, []byte(`"coverage_data"`)) {
+		return FormatPython
+	}
+	// Go responses contain "meta_data" and "counters_data" fields
+	if bytes.Contains(body, []byte(`"meta_data"`)) {
+		return FormatGo
+	}
+	// Default to Go for backward compatibility
+	return FormatGo
+}
+
+// collectPythonCoverage handles Python coverage format
+func (c *CoverageClient) collectPythonCoverage(body []byte, testName string) error {
+	var resp PythonCoverageResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("decode Python coverage response: %w", err)
+	}
+
+	// Check if coverage data is empty
+	if resp.CoverageData == "" {
+		if resp.Message != "" {
+			fmt.Printf("  ⚠️  %s\n", resp.Message)
+		}
+		return fmt.Errorf("no coverage data received")
+	}
+
+	// Decode base64 coverage data
+	coverageData, err := base64.StdEncoding.DecodeString(resp.CoverageData)
+	if err != nil {
+		return fmt.Errorf("decode Python coverage data: %w", err)
+	}
+
+	// Create test-specific subdirectory
+	testDir := filepath.Join(c.outputDir, testName)
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		return fmt.Errorf("create test directory: %w", err)
+	}
+
+	// Save as .coverage file (Python's native format)
+	coverageFile := filepath.Join(testDir, ".coverage")
+	if err := os.WriteFile(coverageFile, coverageData, 0644); err != nil {
+		return fmt.Errorf("write coverage file: %w", err)
+	}
+
+	fmt.Printf("  📁 Saved: %s (%d bytes)\n", coverageFile, len(coverageData))
+	if resp.FilesCombined > 0 {
+		fmt.Printf("  📊 Combined from %d coverage file(s)\n", resp.FilesCombined)
+	}
+
+	return nil
+}
+
+// collectGoCoverage handles Go coverage format
+func (c *CoverageClient) collectGoCoverage(body []byte, testName string) error {
 	var covResp CoverageResponse
-	if err := json.NewDecoder(resp.Body).Decode(&covResp); err != nil {
-		return fmt.Errorf("decode coverage response: %w", err)
+	if err := json.Unmarshal(body, &covResp); err != nil {
+		return fmt.Errorf("decode Go coverage response: %w", err)
 	}
 
 	// Decode and save metadata

@@ -2,6 +2,8 @@
 
 Get started with `coverport` in 5 minutes!
 
+> **New**: `coverport` now supports direct URL collection (`--url http://localhost:9095`) for local development, and uses a manifest-based workflow for simplified batch processing. See `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` for details.
+
 ## Prerequisites
 
 1. **Instrumented Go Application**: Your app must be built with coverage:
