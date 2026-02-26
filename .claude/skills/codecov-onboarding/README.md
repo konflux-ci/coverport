@@ -7,15 +7,17 @@ We've added a new AI skill to help you onboard your repository to Codecov for un
 ## What It Does
 
 The skill guides you through:
-- Setting up Codecov for your repository
-- Configuring coverage uploads with the `unit-tests` flag
+- Analyzing your repository's test setup (discovering test types like unit, integration, etc.)
+- Verifying tests actually run with coverage locally before touching CI
+- Configuring CI to run tests with coverage and upload to Codecov
+- Automatically handling multiple test types with separate Codecov flags
 - Integrating with your CI system (GitHub Actions, OpenShift CI/Prow, or GitLab CI)
 - Establishing a main branch baseline for accurate PR coverage diffs
 
 ## Prerequisites
 
 Before starting, make sure you have:
-- ✅ Unit tests already running in your repository
+- ✅ Tests already in your repository (unit, integration, or both)
 - ✅ A Codecov account (sign up at https://app.codecov.io)
 - ✅ Your Codecov upload token ready
 
@@ -128,9 +130,10 @@ AI: I'll help you onboard your repository to Codecov. Let me start with a few qu
 
 | Feature | Description |
 |---------|-------------|
+| **Test Type Discovery** | Detects unit, integration, and other test types automatically |
+| **Local Verification** | Verifies tests pass with coverage before configuring CI |
+| **Multi-Test-Type Support** | Configures separate Codecov flags per test type |
 | **Multi-CI Support** | GitHub Actions, OpenShift CI (Prow), GitLab CI |
-| **Local Testing First** | Guides you to test locally before CI changes |
-| **Flag Configuration** | Sets up `unit-tests` flag for proper categorization |
 | **Partial Setup Handling** | Detects and updates existing Codecov config |
 | **Troubleshooting** | Built-in solutions for common issues |
 
