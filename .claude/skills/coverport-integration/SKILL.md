@@ -60,6 +60,140 @@ Before starting, run these checks to understand the repository structure:
 
 This helps identify potential conflicts or existing coverage infrastructure before making changes.
 
+### Step 0.5: Detect E2E Test Execution Environment
+
+**CRITICAL**: Before proceeding with CoverPort instrumentation, determine where E2E tests actually run.
+
+**CoverPort instrumentation is ONLY needed when E2E tests deploy and run containerized applications in Kubernetes.**
+
+If E2E tests run locally in GitHub Actions (using Kind, Docker Compose, etc.), use standard Go coverage instead (see Alternative Path below).
+
+#### Check for GitHub Actions E2E Tests
+
+```bash
+# Check if E2E tests run in GitHub Actions
+ls .github/workflows/*e2e*.yml .github/workflows/*e2e*.yaml 2>/dev/null
+
+# If found, examine the workflow
+cat .github/workflows/test-e2e.yml  # or whichever e2e workflow exists
+```
+
+#### Decision Criteria
+
+**Use CoverPort instrumentation (continue to Step 1)** if:
+- ❌ No E2E test workflow in `.github/workflows/`
+- ✅ E2E tests deploy containers to Kubernetes cluster
+- ✅ Tests run via Tekton integration-test pipeline
+- ✅ Integration test pipeline exists in `integration-tests/pipelines/`
+
+**Use GitHub Actions Standard Coverage (see Alternative Path below)** if:
+- ✅ E2E test workflow exists in `.github/workflows/test-e2e.yml`
+- ✅ Workflow runs `make test-e2e` or `go test -tags=e2e`
+- ✅ Tests use Kind, Docker Compose, or similar local environments
+- ✅ No container deployment to external cluster
+
+**If unclear, ask the user:**
+```
+I found E2E tests in [location]. Do these tests:
+
+A) Run locally in GitHub Actions (make test-e2e, using Kind/Docker)?
+   → Use Alternative Path: GitHub Actions Standard Coverage
+
+B) Deploy containerized applications to Kubernetes for testing?
+   → Continue with CoverPort instrumentation (Step 1)
+```
+
+---
+
+## Alternative Path: GitHub Actions E2E Coverage
+
+**Use this approach INSTEAD of Steps 1-8 when E2E tests run in GitHub Actions.**
+
+This is simpler because it uses standard Go coverage without container instrumentation.
+
+### A1: Add Coverage to E2E Test Makefile Target
+
+Find the existing `test-e2e` target in the Makefile and create a coverage variant:
+
+```makefile
+.PHONY: test-e2e-coverage
+test-e2e-coverage: ## Run e2e tests with coverage
+	go test -tags=e2e ./test/e2e/... -v -coverprofile=cover-e2e.out -covermode=atomic
+```
+
+**If using Ginkgo:**
+```makefile
+.PHONY: test-e2e-coverage
+test-e2e-coverage: ## Run e2e tests with coverage (Ginkgo)
+	go test -tags=e2e ./test/e2e/... -v -ginkgo.v -coverprofile=cover-e2e.out -covermode=atomic
+```
+
+**Note:** Match the test path and flags from your existing `test-e2e` target.
+
+### A2: Modify GitHub Actions E2E Workflow
+
+Update `.github/workflows/test-e2e.yml` (or your E2E workflow file):
+
+```yaml
+jobs:
+  test-e2e:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for CodeCov OIDC
+      contents: read
+
+    steps:
+      # ... keep all existing setup steps (checkout, Go setup, Kind install, etc.) ...
+
+      - name: Run E2E Tests with Coverage
+        run: make test-e2e-coverage  # Changed from: make test-e2e
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: e2e-tests
+          files: ./cover-e2e.out
+          fail_ci_if_error: false
+```
+
+**Important:**
+- Keep ALL existing test setup/teardown steps
+- Only change the test invocation to use `make test-e2e-coverage`
+- Add the CodeCov upload step at the end
+- Use `e2e-tests` flag (not `unit-tests`)
+
+### A3: Update codecov.yml
+
+Add the `e2e-tests` flag to `.github/codecov.yml`:
+
+```yaml
+flags:
+  e2e-tests:
+    paths:
+      - "!vendor/"
+    carryforward: true
+```
+
+### A4: Verification
+
+After merging:
+1. Check workflow runs: https://github.com/org/repo/actions
+2. Verify "Upload coverage to Codecov" step succeeds
+3. Check CodeCov: https://app.codecov.io/gh/org/repo
+4. Enable flag analytics in CodeCov UI (Flags tab)
+5. Verify `e2e-tests` flag appears with coverage data
+
+**You're done!** No CoverPort instrumentation needed for this scenario.
+
+---
+
+## CoverPort Instrumentation Path
+
+**Continue with Step 1 below ONLY if E2E tests deploy containerized applications to Kubernetes.**
+
+If you used the Alternative Path above, skip Steps 1-8.
+
 ### Step 1: Analyze the Repository
 
 Analyze the repository structure to understand what needs to be modified:
