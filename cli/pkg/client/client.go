@@ -90,24 +90,17 @@ type ContainerMetadata struct {
 
 // NewClient creates a new coverage client for the given namespace
 func NewClient(namespace, outputDir string) (*CoverageClient, error) {
-	// Load kubeconfig
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("get home dir: %w", err)
-		}
-		kubeconfig = filepath.Join(home, ".kube", "config")
-	}
+	// Use standard client-go config loading rules:
+	// 1. KUBECONFIG env var (supports multiple paths)
+	// 2. In-cluster config
+	// 3. Default ~/.kube/config
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 
-	// Build config from kubeconfig
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	config, err := kubeConfig.ClientConfig()
 	if err != nil {
-		// Try in-cluster config
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			return nil, fmt.Errorf("build kubernetes config: %w", err)
-		}
+		return nil, fmt.Errorf("build kubernetes config: %w", err)
 	}
 
 	// Create clientset

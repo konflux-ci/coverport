@@ -273,23 +273,18 @@ func runCollect(cmd *cobra.Command, args []string) {
 }
 
 func setupKubeClient() (kubernetes.Interface, *rest.Config) {
-	// Load kubeconfig
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			kubeconfig = filepath.Join(home, ".kube", "config")
-		}
-	}
+	// Use standard client-go config loading rules:
+	// 1. --kubeconfig flag (not used here)
+	// 2. KUBECONFIG env var (supports multiple paths)
+	// 3. In-cluster config
+	// 4. Default ~/.kube/config
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 
-	// Build config
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	config, err := kubeConfig.ClientConfig()
 	if err != nil {
-		// Try in-cluster config
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			exitWithError("Failed to build Kubernetes config: %v", err)
-		}
+		exitWithError("Failed to build Kubernetes config: %v", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
