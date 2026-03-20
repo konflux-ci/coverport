@@ -458,18 +458,31 @@ echo "== Running tests =="
 timeout -s KILL 30m $MAKE check || true
 capture_coverage "coverage"
 
-# --- Download Codecov CLI ---
+# --- Upload to Codecov ---
+# Choose ONE of the following options based on your GitLab instance:
+
+# Option A: Public GitLab (gitlab.com) → app.codecov.io (binary download)
 curl -Os --connect-timeout 10 --max-time 120 \
   https://cli.codecov.io/latest/linux/codecov
 chmod +x codecov
-
-# --- Upload ---
-# For self-hosted Codecov, add: --codecov-url "${CODECOV_URL}"
 ./codecov upload-process \
   --token "${CODECOV_TOKEN}" \
   --flag unit-tests \
   --file coverage.info
+
+# Option B: Internal GitLab (gitlab.cee.redhat.com) → self-hosted Codecov (pip)
+# pip install codecov-cli
+# codecovcli --enterprise-url "${CODECOV_URL}" upload-process \
+#   --token "${CODECOV_TOKEN}" \
+#   --slug "${CI_PROJECT_PATH}" \
+#   --flag unit-tests \
+#   --file coverage.info \
+#   --disable-search \
+#   --git-service gitlab_enterprise
 ```
+
+**Note for internal GitLab:** See `codecov-config/CONFIG.md` for the pip-based
+codecov-cli approach which is recommended for internal GitLab environments.
 
 ## Troubleshooting
 

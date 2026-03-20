@@ -161,18 +161,18 @@ The ci-operator config changes are made in the openshift/release repository via 
 
 ## GitLab CI - Full Configuration
 
+### GitLab.com (Public GitLab) → app.codecov.io
+
 ```yaml
 coverage-upload:
   stage: test
   script:
     - [test-command-with-coverage]
-    # Download Codecov CLI
+    # Download Codecov CLI binary
     - curl -Os https://cli.codecov.io/latest/linux/codecov
     - chmod +x codecov
-    # For app.codecov.io:
+    # Upload to app.codecov.io
     - ./codecov upload-process --token $CODECOV_TOKEN --flag unit-tests --file [coverage-file-path]
-    # For self-hosted Codecov, add --codecov-url:
-    # - ./codecov upload-process --codecov-url $CODECOV_URL --token $CODECOV_TOKEN --flag unit-tests --file [coverage-file-path]
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -180,7 +180,60 @@ coverage-upload:
 
 Setup:
 - Add `CODECOV_TOKEN` as a CI/CD variable in GitLab → Settings → CI/CD → Variables (masked and protected).
-- For self-hosted Codecov, also add `CODECOV_URL` with the instance URL.
+
+### Internal GitLab (gitlab.cee.redhat.com) → Self-Hosted Codecov
+
+For internal GitLab, use the Python-based codecov-cli installed via pip:
+
+```yaml
+variables:
+  CODECOV_URL: "https://codecov-codecov.apps.rosa.kflux-c-stg-i01.qfla.p3.openshiftapps.com"
+
+stages:
+  - test
+  - analysis
+
+unit-tests:
+  stage: test
+  image: registry.access.redhat.com/ubi9/go-toolset:1.22
+  script:
+    - go test -v -coverprofile=coverage.out -covermode=atomic ./...
+  artifacts:
+    paths:
+      - coverage.out
+    expire_in: 7 days
+  rules:
+    - when: always
+
+codecov-upload:
+  stage: analysis
+  image: registry.access.redhat.com/ubi9/python-311:latest
+  needs:
+    - unit-tests
+  script:
+    - pip install codecov-cli
+    - |
+      codecovcli --enterprise-url ${CODECOV_URL} upload-process \
+        --token ${CODECOV_TOKEN} \
+        --slug ${CI_PROJECT_PATH} \
+        --flag unit-tests \
+        --file coverage.out \
+        --disable-search \
+        --git-service gitlab_enterprise
+  allow_failure: true
+  rules:
+    - if: $CODECOV_TOKEN
+```
+
+Key differences for internal GitLab:
+- Uses `pip install codecov-cli` (Python package) instead of downloading the binary
+- Uses `codecovcli` command with `--enterprise-url` for self-hosted instance
+- Uses `--git-service gitlab_enterprise` for enterprise GitLab integration
+- Uses `--slug ${CI_PROJECT_PATH}` to identify the project
+- Uses `--disable-search` to upload only the specified file
+
+Setup:
+- Add `CODECOV_TOKEN` as a CI/CD variable in GitLab → Settings → CI/CD → Variables (masked and protected).
 
 For C/C++ projects on GitLab, see the `c-cpp-coverage` skill for a
 complete job template with lcov, compiler flags, and test management.

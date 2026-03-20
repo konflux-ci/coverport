@@ -40,7 +40,11 @@ Ask the user these questions in order:
    - Public → use **app.codecov.io**
    - Private → use **public self-hosted** instance
 
-## Codecov CLI URL Differences
+## Codecov CLI Installation Methods
+
+There are two ways to install the Codecov CLI:
+
+### Method 1: Binary Download (GitHub Actions, Tekton, most CI systems)
 
 For **app.codecov.io** (official SaaS):
 ```bash
@@ -52,7 +56,7 @@ chmod +x codecov
   --file <coverage-file>
 ```
 
-For **self-hosted instances**, the CLI upload needs `--codecov-url`:
+For **self-hosted instances**, add `--codecov-url`:
 ```bash
 curl -Os https://cli.codecov.io/latest/linux/codecov
 chmod +x codecov
@@ -63,8 +67,33 @@ chmod +x codecov
   --file <coverage-file>
 ```
 
-The `--codecov-url` flag tells the CLI to send coverage data to
-the self-hosted instance instead of the default app.codecov.io.
+### Method 2: Pip Installation (Recommended for Internal GitLab)
+
+For **internal GitLab (gitlab.cee.redhat.com)** using the self-hosted
+Codecov instance, use the Python-based codecov-cli installed via pip.
+This is the recommended approach for enterprise GitLab environments:
+
+```bash
+pip install codecov-cli
+
+codecovcli --enterprise-url <CODECOV_INSTANCE_URL> upload-process \
+  --token "${CODECOV_TOKEN}" \
+  --slug "${CI_PROJECT_PATH}" \
+  --flag <flag-name> \
+  --file <coverage-file> \
+  --disable-search \
+  --git-service gitlab_enterprise
+```
+
+Key differences with the pip-based CLI:
+- Command is `codecovcli` (not `./codecov`)
+- Uses `--enterprise-url` (not `--codecov-url`)
+- Requires `--git-service gitlab_enterprise` for enterprise GitLab
+- Requires `--slug` to specify the project path
+- Uses `--disable-search` to upload only the specified file
+
+The `--codecov-url` / `--enterprise-url` flag tells the CLI to send
+coverage data to the self-hosted instance instead of app.codecov.io.
 
 ## GitHub Actions — Codecov Action
 

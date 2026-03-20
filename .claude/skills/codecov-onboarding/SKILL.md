@@ -476,7 +476,11 @@ Analyze `.gitlab-ci.yml` and propose changes.
 a complete GitLab CI job template with all necessary workarounds
 (compiler flags, lcov pipeline, test timeout, etc.).
 
-For other languages, propose a simpler job:
+**Choose the appropriate GitLab CI configuration based on the GitLab instance:**
+
+##### GitLab.com (Public GitLab) → app.codecov.io
+
+For public GitLab.com repositories using app.codecov.io:
 
 ```
 I found your GitLab CI configuration at: .gitlab-ci.yml
@@ -492,13 +496,11 @@ coverage-upload:
   script:
     # Your existing test command with coverage
     - [test-command-with-coverage]
-    # Upload to Codecov
+    # Download Codecov CLI binary
     - curl -Os https://cli.codecov.io/latest/linux/codecov
     - chmod +x codecov
-    # For app.codecov.io:
+    # Upload to app.codecov.io
     - ./codecov upload-process --token $CODECOV_TOKEN --flag unit-tests --file [coverage-file-path]
-    # For self-hosted Codecov, add --codecov-url:
-    # - ./codecov upload-process --codecov-url $CODECOV_URL --token $CODECOV_TOKEN --flag unit-tests --file [coverage-file-path]
   rules:
     # Run on main branch (for baseline)
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -512,7 +514,84 @@ coverage-upload:
    - Go to GitLab → Repo → Settings → CI/CD → Variables
    - Add variable: CODECOV_TOKEN
    - Mark as "Masked" and "Protected"
-2. For self-hosted Codecov, also add CODECOV_URL variable with the instance URL.
+```
+
+##### Internal GitLab (gitlab.cee.redhat.com) → Self-Hosted Codecov
+
+For internal GitLab repositories using the self-hosted Codecov instance,
+use the Python-based codecov-cli installed via pip. This is the recommended
+approach for enterprise GitLab environments.
+
+```
+I found your GitLab CI configuration at: .gitlab-ci.yml
+
+Since you're using internal GitLab (gitlab.cee.redhat.com), I'll configure
+uploads to the self-hosted Codecov instance using the Python codecov-cli.
+
+**Recommended pipeline structure (separate upload job):**
+```
+
+```yaml
+variables:
+  # Self-hosted Codecov instance for internal GitLab
+  CODECOV_URL: "https://codecov-codecov.apps.rosa.kflux-c-stg-i01.qfla.p3.openshiftapps.com"
+
+stages:
+  - test
+  - analysis
+
+# Your existing test job(s) that generate coverage
+unit-tests:
+  stage: test
+  image: registry.access.redhat.com/ubi9/go-toolset:1.22
+  script:
+    - go test -v -coverprofile=coverage.out -covermode=atomic ./...
+    - go tool cover -func=coverage.out
+  artifacts:
+    paths:
+      - coverage.out
+    expire_in: 7 days
+  rules:
+    - when: always
+
+# Codecov upload job (runs after test jobs)
+codecov-upload:
+  stage: analysis
+  image: registry.access.redhat.com/ubi9/python-311:latest
+  needs:
+    - unit-tests
+  script:
+    # Install codecov-cli via pip
+    - pip install codecov-cli
+
+    # Upload to self-hosted Codecov
+    - |
+      codecovcli --enterprise-url ${CODECOV_URL} upload-process \
+        --token ${CODECOV_TOKEN} \
+        --slug ${CI_PROJECT_PATH} \
+        --flag unit-tests \
+        --file coverage.out \
+        --disable-search \
+        --git-service gitlab_enterprise
+  allow_failure: true
+  rules:
+    - if: $CODECOV_TOKEN
+```
+
+```
+**Key differences for internal GitLab:**
+- Uses `pip install codecov-cli` instead of downloading the binary
+- Uses `codecovcli` command (not `./codecov`)
+- Uses `--enterprise-url` to specify the self-hosted Codecov instance
+- Uses `--git-service gitlab_enterprise` for enterprise GitLab integration
+- Uses `--slug ${CI_PROJECT_PATH}` to identify the project
+- Uses `--disable-search` to upload only the specified file
+
+**Setup required:**
+1. Add CODECOV_TOKEN as a CI/CD variable:
+   - Go to GitLab → Repo → Settings → CI/CD → Variables
+   - Add variable: CODECOV_TOKEN (get from Codecov UI → Your Repo → Configure)
+   - Mark as "Masked" and "Protected"
 
 Should I apply this change to your .gitlab-ci.yml? (yes/no)
 ```
@@ -549,12 +628,36 @@ If you encounter any issues, let me know and I'll help troubleshoot!
 **Optional:** You can add a codecov.yml file to customize Codecov behavior.
 
 **Benefits:**
+- Exclude files/directories that won't be covered by tests (prevents misleading low coverage)
 - Set coverage thresholds and status checks
 - Configure PR comment format and layout
 - Enable carryforward flags (useful when not all tests run on every commit)
+- Configure how partial line coverage is counted
 - Prepare for additional flags (e.g., integration-tests, e2e-tests in future)
+```
 
-**Example codecov.yml:**
+#### Why Coverage Percentages May Differ Between Tools
+
+If users report that Codecov shows different coverage than another dashboard
+(e.g., Konflux coverage dashboard), explain these common causes:
+
+1. **Different file scope:** Codecov analyzes ALL files in the repository by
+   default, while other tools may only count files that appear in coverage
+   reports. If your tests cover 12 files but the repo has 20 Go files,
+   Codecov will show lower overall coverage.
+
+2. **Partial line coverage:** Codecov counts "partial" coverage (e.g., a line
+   with a branch where only one path is covered) differently than some tools.
+   By default, partials count as uncovered. You can change this behavior.
+
+3. **Different exclude patterns:** Each tool may have different default
+   exclusions for vendor, test, or generated files.
+
+**Solution:** Create a `codecov.yml` with `ignore:` patterns and optionally
+configure partial coverage behavior.
+
+```
+**Recommended codecov.yml with ignore patterns:**
 ```
 
 ```yaml
@@ -565,6 +668,33 @@ coverage:
   precision: 2
   round: down
   range: "50...100"
+
+  status:
+    project:
+      default:
+        # Only measure coverage on files that your tests actually target
+        # Partials (partially covered lines) count as hits, not misses
+        # This aligns Codecov's calculation with tools that don't penalize partials
+        partials_as_hits: true
+    patch:
+      default:
+        partials_as_hits: true
+
+# Ignore files/directories that tests won't cover
+# Adjust these patterns based on your project structure
+ignore:
+  - "vendor/**"           # Vendored dependencies
+  - "**/mock_*.go"        # Generated mocks
+  - "**/*_mock.go"        # Generated mocks (alternate naming)
+  - "**/zz_generated*.go" # Kubernetes generated files
+  - "**/fake_*.go"        # Fake implementations for testing
+  - "test/**"             # Test utilities and fixtures
+  - "hack/**"             # Build/CI scripts
+  - "docs/**"             # Documentation
+  - "examples/**"         # Example code
+  # Add project-specific patterns:
+  # - "cmd/tools/**"      # CLI tools not covered by unit tests
+  # - "internal/legacy/**" # Legacy code being phased out
 
 flags:
   unit-tests:
@@ -579,7 +709,28 @@ comment:
 ```
 
 ```
-This is optional - basic coverage reporting works without it.
+**When to recommend ignore patterns:**
+
+If the user reports coverage discrepancies, help them identify files to ignore:
+
+1. Ask: "Are there files in your repository that your tests don't cover
+   (e.g., generated code, legacy code, CLI tools, examples)?"
+
+2. Check for common patterns:
+   - `zz_generated*.go` (Kubernetes controller-gen output)
+   - `mock_*.go` or `*_mock.go` (mockgen output)
+   - `vendor/` directory
+   - `fake_*.go` (testing fakes)
+   - CLI tools in `cmd/` that aren't unit tested
+   - `examples/` or `docs/` directories
+
+3. Suggest adding these to the `ignore:` section in codecov.yml.
+
+**Note on partials_as_hits:**
+- When `partials_as_hits: true`, a line with partial branch coverage
+  (e.g., an `if` where only the true branch is tested) counts as covered.
+- This aligns with tools that only count "hit vs not hit" per line.
+- Set to `false` (default) if you want stricter branch coverage reporting.
 
 Would you like me to create a codecov.yml file for your repository? (yes/no)
 ```
