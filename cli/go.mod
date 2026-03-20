@@ -1,6 +1,6 @@
 module github.com/konflux-ci/coverport/cli
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/opencontainers/image-spec v1.1.1
@@ -44,7 +44,7 @@ require (
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
-	golang.org/x/time v0.9.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
