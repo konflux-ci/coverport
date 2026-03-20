@@ -128,6 +128,7 @@ import _ "github.com/konflux-ci/coverport/instrumentation/go" // starts coverage
 - The `//go:build coverage` tag ensures this file is only included when building with `-tags=coverage`
 - The blank import triggers the coverage server's init() function
 - This file should be at the root of your Go module (where `main.go` is, or where the main package is)
+- Always run `go mod tidy` after this step. The coverport instrumentation dependency was previously fetched as indirect, and the new blank import makes it a direct dependency.
 
 ### Step 5: Modify the Dockerfile
 
