@@ -73,6 +73,15 @@ Before starting, run these checks to understand the repository structure:
    test code must pass `ENABLE_COVERAGE` through to the build command,
    otherwise it will overwrite the instrumented image with a production one.
 
+6. **Determine where e2e tests run:**
+   ```bash
+   # Check for Tekton integration test pipelines
+   ls integration-tests/pipelines/*.yaml 2>/dev/null || echo "No Tekton e2e pipelines"
+   # Check for GitHub Actions e2e workflows
+   grep -rl "e2e\|integration" .github/workflows/ --include="*.yml" --include="*.yaml" 2>/dev/null
+   ```
+   This is critical for deciding which pipeline changes are needed (see Decision Point below).
+
 This helps identify potential conflicts or existing coverage infrastructure before making changes.
 
 ### Step 1: Analyze the Repository
@@ -86,6 +95,10 @@ Analyze the repository structure to understand what needs to be modified:
 5. **Find Tekton PR pipeline** - Look in `.tekton/` for `*-pull-request.yaml`
 6. **Find GitHub Actions** - Look in `.github/workflows/` for `pr.yaml`, `pr.yml`, `codecov.yaml`, or `codecov.yml`
 7. **Check for existing coverage integration** - Search for `ENABLE_COVERAGE`, `instrumented`, `coverport`
+8. **Determine where e2e tests run** - This determines which pipeline changes are needed:
+   - **Tekton integration pipelines** (`integration-tests/pipelines/`): Needs instrumented image in Tekton push pipeline + coverage collection task in e2e pipeline
+   - **GitHub Actions only** (e.g., Kind cluster in `.github/workflows/`): Only needs Dockerfile + GitHub Actions changes, **no Tekton pipeline changes**
+   - **Both**: Apply both sets of changes
 
 ### Step 2: Ask Clarifying Questions
 
@@ -96,17 +109,32 @@ Before making changes, ask the user:
 3. **Secret name** - Confirm they want to use `coverport-secrets` or specify a different name
 4. **OCI storage** - Confirm where coverage data should be stored (the quay.io repository for test artifacts)
 
+### Decision Point: Tekton vs GitHub Actions
+
+**After Steps 0-2, determine which changes to apply based on where e2e tests run:**
+
+| E2E tests run in... | Apply these steps |
+|---|---|
+| **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Steps 3-6, E2E pipeline update, Step 8 (Tekton PR) |
+| **GitHub Actions only** (no `integration-tests/pipelines/`) | Steps 3-5.5, Step 7 (GitHub Actions) — **skip Steps 6 and 8** |
+| **Both Tekton and GitHub Actions** | All steps |
+
+**Key rule: Do NOT modify Tekton push/PR pipelines (Steps 6, 8) if the repository does not have a Tekton e2e integration pipeline.** Building an instrumented image in Tekton is pointless if nothing in Tekton consumes it. The instrumented build happens locally (e.g., via `make` with `ENABLE_COVERAGE=true`) in the GitHub Actions workflow instead.
+
 ### Step 3: Add Coverport as a Go Module Dependency
 
 Add coverport to your Go module dependencies:
 
 ```bash
 go get github.com/konflux-ci/coverport/instrumentation/go
+go mod tidy
 ```
 
 This will:
 - Add the coverport package to `go.mod` as a dependency
 - Update `go.sum` with the dependency checksums
+
+**Important**: Always run `go mod tidy` after `go get`. The `go get` command adds the dependency as `// indirect`, but since `coverage_init.go` imports it directly (even behind a build tag), `go mod tidy` correctly reclassifies it as a direct dependency. Many CI systems verify that `go mod tidy` produces no diff.
 
 ### Step 4: Create coverage_init.go File
 
@@ -198,6 +226,8 @@ podman images | grep test-
 
 ### Step 6: Update Tekton Push Pipeline
 
+> **Skip this step if e2e tests run only in GitHub Actions.** Building an instrumented image in the Tekton push pipeline is only useful when a Tekton integration test pipeline (in `integration-tests/pipelines/`) consumes it. If e2e tests run exclusively in GitHub Actions (e.g., via Kind cluster), the instrumented build happens locally in the workflow instead.
+
 Add a task to build an instrumented image in the push pipeline (e.g., `.tekton/*-push.yaml`):
 
 Find the location after `prefetch-dependencies` task and add:
@@ -257,6 +287,8 @@ Find the location after `prefetch-dependencies` task and add:
 - Do NOT add a `build-instrumented-image-index` task - the instrumented image is single-platform only
 
 ### Step 5: Update E2E Test Pipeline
+
+> **Skip this step if e2e tests run only in GitHub Actions.** This step applies only when there is a Tekton integration test pipeline in `integration-tests/pipelines/`.
 
 Make three changes to the e2e test pipeline:
 
@@ -321,6 +353,8 @@ For tests that deploy/run container images, find parameters that reference image
 ```
 
 ### Step 8: Update Tekton PR Pipeline (Pull Request Pipeline)
+
+> **Skip this step if e2e tests run only in GitHub Actions.** Adding `ENABLE_COVERAGE=true` to the Tekton PR build is only useful when the built image is consumed by a Tekton integration test pipeline.
 
 Update the PR pipeline (e.g., `.tekton/*-pull-request.yaml`) to build with coverage instrumentation:
 
@@ -664,9 +698,10 @@ Before committing the changes, verify all modifications are correct:
 - [ ] Production build logs show "Building production binary..."
 
 **Go module setup checklist:**
-- [ ] `go.mod` has coverport dependency added
+- [ ] `go.mod` has coverport dependency added (as direct, not indirect)
 - [ ] `go.sum` has coverport checksums
 - [ ] `coverage_init.go` exists at the root of the module with correct build tags
+- [ ] `go mod tidy` produces no diff (dependency is correctly classified)
 
 **File modifications checklist (Tekton path):**
 - [ ] `Dockerfile` has `ENABLE_COVERAGE` build arg (removed `COVERAGE_SERVER_URL`)
@@ -692,6 +727,13 @@ Before committing the changes, verify all modifications are correct:
 - [ ] For Kubernetes pattern: kubeconfig copied with `chmod 644` before mounting
 - [ ] For all patterns: output directory created with `chmod 777`
 - [ ] If e2e test suite rebuilds the image (e.g., kubebuilder BeforeSuite): `ENABLE_COVERAGE` is passed through
+
+**File modifications checklist (GitHub Actions-only path — no Tekton e2e pipeline):**
+- [ ] Tekton push pipelines are NOT modified (no `build-instrumented-image` task)
+- [ ] Tekton PR pipelines are NOT modified (no `ENABLE_COVERAGE=true` in BUILD_ARGS)
+- [ ] Makefile or build scripts pass `ENABLE_COVERAGE` to container build commands
+- [ ] GitHub Actions e2e workflow sets `ENABLE_COVERAGE=true` when building images
+- [ ] Coverport collect step runs after e2e tests with `if: always()`
 
 **Documentation provided to user:**
 - [ ] Instructions for creating `coverport-secrets` Kubernetes secret in their tenant namespace (Tekton path)
@@ -760,6 +802,10 @@ Common issues and solutions:
   - Run `go get github.com/konflux-ci/coverport/instrumentation/go`
   - Verify `go.mod` has the coverport dependency
   - Run `go mod tidy` to clean up dependencies
+
+**CI check fails: "Go mod state is not clean"**
+- **Cause**: `go get` adds dependencies as `// indirect`, but `go mod tidy` reclassifies direct imports
+- **Solution**: Always run `go mod tidy` after `go get`. The coverport import in `coverage_init.go` (even behind a build tag) makes it a direct dependency. If CI runs `go mod tidy` and checks for diffs, the `// indirect` annotation will cause a failure.
 
 **Instrumented build fails:**
 - Verify coverport Go module dependency is in `go.mod` and `go.sum`
@@ -867,6 +913,7 @@ Common issues and solutions:
 7. **Provide context** - Explain why each change is needed
 8. **Use checklists** - Go through the post-integration checklist before completing
 9. **Test both paths** - Ensure both production and instrumented builds work
+10. **Don't modify what isn't consumed** - Only add instrumented image builds to Tekton pipelines if a Tekton e2e pipeline will use them. If e2e tests run only in GitHub Actions, keep Tekton pipelines untouched.
 
 ## Reference Implementation
 
@@ -956,27 +1003,86 @@ RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
 - snapshotgc binary is built separately without coverage instrumentation
 - No external file downloads needed - coverport is a Go module dependency
 
+### Example 3: GitHub Actions-only E2E (no Tekton integration pipeline)
+
+For a repository where e2e tests run in GitHub Actions via Kind cluster
+(no `integration-tests/pipelines/` directory):
+
+**Steps 1-5.5: Same as Examples 1/2** (add module, coverage_init.go, Dockerfile, validate)
+
+**Step 6: Update Makefile** (instead of Tekton pipelines)
+```makefile
+# Pass ENABLE_COVERAGE through to container builds
+.PHONY: build-image
+build-image:
+	$(CONTAINER_TOOL) build --build-arg ENABLE_COVERAGE=$(ENABLE_COVERAGE) -t $(IMAGE) -f Dockerfile .
+```
+
+**Step 7: Update GitHub Actions e2e workflow**
+```yaml
+- name: Build and load images
+  env:
+    ENABLE_COVERAGE: "true"
+  run: |
+    make load-image
+
+- name: Run e2e tests
+  run: make test-e2e
+
+- name: Collect e2e coverage
+  if: always()
+  run: |
+    mkdir -p coverage-output && chmod 777 coverage-output
+    cp $HOME/.kube/config /tmp/kubeconfig && chmod 644 /tmp/kubeconfig
+    podman run --rm \
+      --network host \
+      -v /tmp/kubeconfig:/kubeconfig:ro \
+      -v $PWD/coverage-output:/workspace/coverage-output \
+      -e KUBECONFIG=/kubeconfig \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      collect \
+        --namespace=<app-namespace> \
+        --label-selector="app=<app-label>" \
+        --test-name=e2e-tests \
+        --output=/workspace/coverage-output || true
+
+- name: Upload e2e coverage to Codecov
+  if: always()
+  uses: codecov/codecov-action@v5
+  with:
+    use_oidc: true
+    flags: e2e-tests
+    directory: coverage-output
+    fail_ci_if_error: false
+```
+
+**What's NOT changed in this scenario:**
+- `.tekton/*-push.yaml` — no `build-instrumented-image` task (nothing consumes it)
+- `.tekton/*-pull-request.yaml` — no `ENABLE_COVERAGE=true` in BUILD_ARGS
+- No `integration-tests/pipelines/` changes (directory doesn't exist)
+
 ## Summary
 
 This skill automates coverport integration by:
 1. Running pre-integration repository scan to understand structure
 2. Analyzing the repository structure in detail
 3. Asking clarifying questions about binaries, secrets, and storage
-4. **Adding coverport as a Go module dependency** (enables hermetic builds)
-5. **Creating coverage_init.go with build tags** (clean separation)
-6. Modifying the Dockerfile to support coverage builds with build tags
-7. **Validating Dockerfile changes locally with podman/docker builds**
-8. Adding instrumented image build to Tekton push pipeline with hermetic support
-9. Updating e2e pipeline to use test-metadata v0.4 and instrumented images
-10. Adding coverage collection task to e2e pipeline (Tekton path)
-11. Updating PR pipeline to build with coverage instrumentation and hermetic builds
-12. Updating GitHub Actions to add codecov flags for unit tests
-13. **E2E coverage collection in GitHub Actions** using coverport CLI container via podman:
+4. **Determining where e2e tests run** (Tekton, GitHub Actions, or both) to decide which pipeline changes are needed
+5. **Adding coverport as a Go module dependency** (enables hermetic builds)
+6. **Creating coverage_init.go with build tags** (clean separation)
+7. Modifying the Dockerfile to support coverage builds with build tags
+8. **Validating Dockerfile changes locally with podman/docker builds**
+9. Adding instrumented image build to Tekton push pipeline with hermetic support **(only if Tekton e2e pipeline exists)**
+10. Updating e2e pipeline to use test-metadata v0.4 and instrumented images **(only if Tekton e2e pipeline exists)**
+11. Adding coverage collection task to e2e pipeline (Tekton path) **(only if Tekton e2e pipeline exists)**
+12. Updating PR pipeline to build with coverage instrumentation and hermetic builds **(only if Tekton e2e pipeline exists)**
+13. Updating GitHub Actions to add codecov flags for unit tests
+14. **E2E coverage collection in GitHub Actions** using coverport CLI container via podman:
     - Pattern A: Kubernetes-based collection (instrumented app in cluster)
     - Pattern B: Local/podman-based collection with `--url` flag (app in same job)
     - Pattern C: Client-side collection (test runner output, e.g. Cypress)
-14. Providing comprehensive post-integration validation checklist
-15. Providing documentation for manual secret creation
+15. Providing comprehensive post-integration validation checklist
+16. Providing documentation for manual secret creation
 
 The integration enables automatic e2e test coverage collection and upload to Codecov with proper flag separation from unit tests.
 
@@ -989,3 +1095,4 @@ The integration enables automatic e2e test coverage collection and upload to Cod
 - **Early validation**: Podman/docker builds catch issues before CI/CD changes
 - **Clear checklists**: Pre and post-integration checklists ensure nothing is missed
 - **Enhanced troubleshooting**: Covers common scenarios including GitHub Actions specifics
+- **Smart pipeline selection**: Only modifies Tekton pipelines when a Tekton e2e pipeline exists; skips unnecessary changes for GitHub Actions-only repos
