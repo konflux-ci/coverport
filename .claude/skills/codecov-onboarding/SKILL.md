@@ -676,13 +676,18 @@ coverage:
   status:
     project:
       default:
-        # Only measure coverage on files that your tests actually target
-        # Partials (partially covered lines) count as hits, not misses
-        # This aligns Codecov's calculation with tools that don't penalize partials
-        partials_as_hits: true
+        target: auto
+        threshold: 1%
     patch:
       default:
-        partials_as_hits: true
+        target: auto
+        threshold: 1%
+
+# Count partial coverage hits as covered lines
+# Valid for cobertura and jacoco report formats
+parsers:
+  cobertura:
+    partials_as_hits: true
 
 # Ignore files/directories that tests won't cover
 # Adjust these patterns based on your project structure
@@ -731,10 +736,10 @@ If the user reports coverage discrepancies, help them identify files to ignore:
 3. Suggest adding these to the `ignore:` section in codecov.yml.
 
 **Note on partials_as_hits:**
-- When `partials_as_hits: true`, a line with partial branch coverage
-  (e.g., an `if` where only the true branch is tested) counts as covered.
-- This aligns with tools that only count "hit vs not hit" per line.
-- Set to `false` (default) if you want stricter branch coverage reporting.
+- `partials_as_hits` belongs under `parsers:` (e.g., `parsers.cobertura` or `parsers.jacoco`), NOT under `coverage.status`.
+- When `true`, a line with partial branch coverage (e.g., an `if` where only the true branch is tested) counts as covered.
+- This aligns Codecov's calculation with tools like Go's native coverage that don't penalize partials.
+- Validate your codecov.yml with: `curl -X POST --data-binary @codecov.yml https://codecov.io/validate`
 
 Would you like me to create a codecov.yml file for your repository? (yes/no)
 ```
