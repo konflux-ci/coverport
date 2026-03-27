@@ -9,10 +9,14 @@ coverage:
   status:
     project:
       default:
-        partials_as_hits: true
+        target: auto
     patch:
       default:
-        partials_as_hits: true
+        target: auto
+
+parsers:
+  go:
+    partials_as_hits: true
 
 ignore:
   - "**/*_test.go"
