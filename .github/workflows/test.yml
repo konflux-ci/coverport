@@ -1,0 +1,105 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test-cli:
+    name: CLI Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        go-version: ['1.24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Download dependencies
+        working-directory: cli
+        run: go mod download
+
+      - name: Run tests
+        working-directory: cli
+        run: go test ./... -v -count=1 -race -coverprofile=coverage.out -covermode=atomic
+
+      - name: Show coverage summary
+        working-directory: cli
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Upload CLI coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          flags: unit-tests
+          files: cli/coverage.out
+          fail_ci_if_error: false
+
+  test-instrumentation:
+    name: Instrumentation Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        go-version: ['1.22', '1.23', '1.24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Run tests
+        working-directory: instrumentation/go
+        run: go test ./... -v -count=1 -cover -coverprofile=coverage.out -covermode=atomic
+
+      - name: Upload instrumentation coverage to Codecov
+        if: matrix.go-version == '1.24'
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          flags: unit-tests
+          files: instrumentation/go/coverage.out
+          fail_ci_if_error: false
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Check CLI builds
+        working-directory: cli
+        run: go build ./...
+
+      - name: Run go vet (CLI)
+        working-directory: cli
+        run: go vet ./...
+
+      - name: Check instrumentation builds
+        working-directory: instrumentation/go
+        run: go build ./...
+
+      - name: Run go vet (instrumentation)
+        working-directory: instrumentation/go
+        run: go vet ./...

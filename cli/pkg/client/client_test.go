@@ -227,22 +227,13 @@ func TestCollectCoverageFromURL(t *testing.T) {
 
 	// Create test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("Expected POST request, got %s", r.Method)
+		if r.Method != http.MethodGet {
+			t.Errorf("Expected GET request, got %s", r.Method)
 		}
 
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Errorf("Expected Content-Type application/json, got %s", r.Header.Get("Content-Type"))
-		}
-
-		// Parse request body
-		var reqBody map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-			t.Errorf("Failed to decode request body: %v", err)
-		}
-
-		if reqBody["test_name"] != "test-case" {
-			t.Errorf("Expected test_name 'test-case', got '%s'", reqBody["test_name"])
+		name := r.URL.Query().Get("name")
+		if name != "test-case" {
+			t.Errorf("Expected query param name='test-case', got '%s'", name)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
