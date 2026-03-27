@@ -565,14 +565,15 @@ codecov-upload:
     - pip install codecov-cli
 
     # Upload to self-hosted Codecov
-    - |
-      codecovcli --enterprise-url ${CODECOV_URL} upload-process \
-        --token ${CODECOV_TOKEN} \
-        --slug ${CI_PROJECT_PATH} \
-        --flag unit-tests \
-        --file coverage.out \
-        --disable-search \
-        --git-service gitlab_enterprise
+    # IMPORTANT: --slug must use equals-sign syntax (--slug="value") to prevent
+    # shell word-splitting in GitLab CI when the slug contains slashes.
+    # Also: use the upstream repo slug, NOT ${CI_PROJECT_PATH}, because
+    # CI_PROJECT_PATH reflects the fork's path in MR pipelines from forks.
+    - codecovcli --enterprise-url ${CODECOV_URL} upload-process --token ${CODECOV_TOKEN} --slug="${CODECOV_SLUG}" --flag unit-tests --file coverage.out --disable-search --git-service gitlab_enterprise
+  variables:
+    # Hardcode the upstream repo slug — do NOT use ${CI_PROJECT_PATH} as it
+    # will be the fork's path when running MR pipelines from forks.
+    CODECOV_SLUG: "[upstream-org]/[upstream-repo]"
   allow_failure: true
   rules:
     - if: $CODECOV_TOKEN
@@ -584,7 +585,10 @@ codecov-upload:
 - Uses `codecovcli` command (not `./codecov`)
 - Uses `--enterprise-url` to specify the self-hosted Codecov instance
 - Uses `--git-service gitlab_enterprise` for enterprise GitLab integration
-- Uses `--slug ${CI_PROJECT_PATH}` to identify the project
+- Uses `--slug="${CODECOV_SLUG}"` with equals-sign syntax to identify the project
+  (plain `--slug ${VAR}` causes "unexpected extra argument" errors due to shell splitting)
+- Uses a hardcoded `CODECOV_SLUG` variable with the upstream repo path — do NOT use
+  `${CI_PROJECT_PATH}` because it reflects the fork's path in MR pipelines from forks
 - Uses `--disable-search` to upload only the specified file
 
 **Setup required:**
@@ -893,6 +897,28 @@ Common issues and solutions:
 - For Go: `go test -coverprofile=coverage.out ./...` runs all at once
 - For separate runs, use coverage merge tools
 - Verify all test commands include coverage flags
+
+### Upload Fails: "Got unexpected extra argument" (GitLab CI --slug)
+
+**Cause:** The `--slug` value contains slashes (e.g., `org/group/repo`) and
+shell word-splitting in GitLab CI causes the CLI to parse it as a positional
+argument instead of the option value.
+
+**Solutions:**
+- Use equals-sign syntax: `--slug="${CODECOV_SLUG}"` instead of `--slug ${CODECOV_SLUG}`
+- This applies to both `upload-process` and `do-upload` subcommands
+- Note: `--slug` is a **subcommand** option, not a global `codecovcli` option — place it after the subcommand name
+- YAML multiline blocks (`|`) with `\` continuations can also cause quoting issues; prefer single-line commands
+
+### Upload Reports to Wrong Repo (Fork vs Upstream)
+
+**Cause:** Using `${CI_PROJECT_PATH}` for `--slug` reports coverage to the
+fork instead of the upstream repo when MR pipelines run from forks.
+
+**Solutions:**
+- Hardcode the upstream repo slug in a CI variable (e.g., `CODECOV_SLUG: "org/repo"`)
+- Do NOT use `${CI_PROJECT_PATH}` — it reflects the fork's path in MR pipelines
+- The Codecov repo must be onboarded under the upstream path, not the fork
 
 ### GitLab CI: Variable Not Available
 
