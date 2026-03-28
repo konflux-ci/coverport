@@ -43,14 +43,21 @@ Before using this skill, verify the repository has:
 
 Before starting, run these checks to understand the repository structure:
 
-1. **Find main.go location:**
+1. **Detect project language and entry point:**
    ```bash
+   # Go projects
    find . -name "main.go" -not -path "*/vendor/*" -not -path "*/test/*"
+   # Python projects
+   find . -name "requirements.txt" -o -name "setup.py" -o -name "pyproject.toml" | head -5
+   ls *.py Dockerfile Containerfile 2>/dev/null
    ```
 
 2. **Check current Dockerfile build command:**
    ```bash
-   grep -A5 "go build" Dockerfile
+   # Go projects
+   grep -A5 "go build" Dockerfile Containerfile 2>/dev/null
+   # Python projects
+   grep -A5 "pip install\|ENTRYPOINT\|CMD" Dockerfile Containerfile 2>/dev/null
    ```
 
 3. **List Tekton pipelines:**
@@ -81,6 +88,15 @@ Before starting, run these checks to understand the repository structure:
    grep -rl "e2e\|integration" .github/workflows/ --include="*.yml" --include="*.yaml" 2>/dev/null
    ```
    This is critical for deciding which pipeline changes are needed (see Decision Point below).
+
+7. **Check if Tekton e2e tests run pytest directly (Python projects):**
+   ```bash
+   grep -A5 "pytest\|python.*run_tests" integration-tests/pipelines/*.yaml 2>/dev/null
+   ```
+   If the Tekton e2e pipeline clones the repo, installs dependencies, and runs pytest directly
+   against the source code (rather than deploying and testing the container image), use
+   **Pattern D: pytest-cov** instead of container instrumentation. This is simpler and gives
+   the same coverage data.
 
 This helps identify potential conflicts or existing coverage infrastructure before making changes.
 
@@ -113,13 +129,16 @@ Before making changes, ask the user:
 
 **After Steps 0-2, determine which changes to apply based on where e2e tests run:**
 
-| E2E tests run in... | Apply these steps |
-|---|---|
-| **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Steps 3-6, E2E pipeline update, Step 8 (Tekton PR) |
-| **GitHub Actions only** (no `integration-tests/pipelines/`) | Steps 3-5.5, Step 7 (GitHub Actions) — **skip Steps 6 and 8** |
-| **Both Tekton and GitHub Actions** | All steps |
+| E2E tests run in... | Test style | Apply these steps |
+|---|---|---|
+| **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Tests deploy/use the container image | Steps 3-6, E2E pipeline update, Step 8 (Tekton PR) |
+| **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Tests run pytest directly against source (Python) | **Pattern D: pytest-cov** — no container instrumentation needed |
+| **GitHub Actions only** (no `integration-tests/pipelines/`) | Tests deploy/use the container image | Steps 3-5.5, Step 7 (GitHub Actions) — **skip Steps 6 and 8** |
+| **Both Tekton and GitHub Actions** | Tests deploy/use the container image | All steps |
 
 **Key rule: Do NOT modify Tekton push/PR pipelines (Steps 6, 8) if the repository does not have a Tekton e2e integration pipeline.** Building an instrumented image in Tekton is pointless if nothing in Tekton consumes it. The instrumented build happens locally (e.g., via `make` with `ENABLE_COVERAGE=true`) in the GitHub Actions workflow instead.
+
+**Key rule: If Tekton e2e tests run pytest directly against source code** (clone repo → install deps → run pytest), container instrumentation is unnecessary. Use Pattern D (pytest-cov) instead — it's simpler and gives the same coverage data.
 
 ### Step 3: Add Coverport as a Go Module Dependency
 
@@ -902,6 +921,164 @@ Common issues and solutions:
   - Ensure production builds do NOT include `-tags=coverage`
   - The coverage code should only be included when `ENABLE_COVERAGE=true`
 
+## Pattern D: Python pytest-cov (No Container Instrumentation)
+
+**When to use:** The Tekton e2e pipeline clones the repo, installs Python dependencies, and
+runs `pytest` directly against the source code — the container image is NOT deployed or tested.
+In this case, coverport container instrumentation is unnecessary. Just add `--cov` flags to
+pytest and upload with `codecov-cli`.
+
+This pattern also applies to GitHub Actions integration test workflows that run pytest directly.
+
+### What to change
+
+**1. Tekton e2e pipeline** (`integration-tests/pipelines/*.yaml`):
+
+Modify the pytest step to collect coverage and add an upload step:
+
+```yaml
+          - name: run-e2e-tests
+            image: registry.access.redhat.com/ubi9/python-311:latest
+            workingDir: /workspace/source
+            env:
+              # ... existing env vars ...
+            script: |
+              #!/usr/bin/env bash
+              set -e
+
+              echo "Installing dependencies..."
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt
+
+              echo "Running E2E tests with coverage..."
+              set +e
+              pytest tests/e2e -vv --maxfail=1 --tb=short \
+                --cov=. \
+                --cov-report=xml:/workspace/source/coverage-e2e.xml \
+                --cov-report=term \
+                --cov-branch
+              TEST_EXIT_CODE=$?
+              set -e
+
+              echo "$TEST_EXIT_CODE" > /workspace/source/test-exit-code
+              echo "E2E tests finished with exit code $TEST_EXIT_CODE"
+
+          - name: upload-coverage
+            image: registry.access.redhat.com/ubi9/python-311:latest
+            workingDir: /workspace/source
+            env:
+              - name: CODECOV_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: <secret-name>
+                    key: codecov-token
+              - name: GIT_REVISION
+                value: $(params.git-revision)
+            script: |
+              #!/usr/bin/env bash
+              set -e
+
+              if [ ! -f coverage-e2e.xml ]; then
+                echo "No coverage report found, skipping upload."
+              else
+                echo "Uploading e2e coverage to Codecov..."
+                pip install --quiet codecov-cli
+
+                codecovcli upload-process \
+                  --flag e2e-tests \
+                  --file coverage-e2e.xml \
+                  --token "$CODECOV_TOKEN" \
+                  --commit-sha "$GIT_REVISION" \
+                  --git-service github \
+                  --slug <org>/<repo> \
+                  --fail-on-error || echo "Coverage upload failed, continuing..."
+
+                echo "Coverage upload complete."
+              fi
+
+              # Propagate the original test exit code
+              TEST_EXIT_CODE=$(cat /workspace/source/test-exit-code 2>/dev/null || echo "1")
+              exit "$TEST_EXIT_CODE"
+```
+
+**IMPORTANT — Tekton codecov-cli gotchas:**
+- `--commit-sha` is **required** — Tekton has no CI auto-detection, codecov-cli will error with
+  `Missing option '-C' / '--sha' / '--commit-sha'` without it
+- `--git-service github` is **required** — without it, codecov-cli detects "local" CI and cannot
+  find the repository
+- `--slug <org>/<repo>` is **required** — the repo slug for Codecov to associate the upload
+
+**IMPORTANT — Coverage upload on test failure:**
+- In Tekton, if a step fails, all subsequent steps are skipped
+- To ensure coverage gets uploaded even when tests fail, capture the test exit code with
+  `set +e` / `$?` and write it to a file
+- The upload step always runs (since the test step now always succeeds)
+- The upload step reads and exits with the original test exit code, so the pipeline still
+  fails when tests fail
+
+**2. GitHub Actions workflows** (if integration/e2e tests run there):
+
+Add `--cov` flags to pytest and upload with OIDC:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write  # Required for OIDC
+
+# ... in the job steps:
+
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/integration/ \
+            -m integration \
+            -vv --tb=short \
+            --cov=. \
+            --cov-report=xml \
+            --cov-report=term \
+            --cov-branch
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          file: ./coverage.xml
+          flags: integration-tests
+          fail_ci_if_error: false
+```
+
+**OIDC vs token auth:**
+- GitHub Actions supports OIDC (`use_oidc: true`) — no `CODECOV_TOKEN` secret needed
+  for public repos on app.codecov.io. Requires `id-token: write` permission.
+- Tekton/codecov-cli does NOT support OIDC — must use `--token` with a Kubernetes secret.
+
+**3. `codecov.yml`:**
+
+Add flags for each test type with `carryforward: true`:
+
+```yaml
+flags:
+  unit-tests:
+    carryforward: true
+  integration-tests:
+    carryforward: true
+  e2e-tests:
+    carryforward: true
+```
+
+### Reference implementation
+
+The `konflux-devlake-mcp` repository uses this pattern:
+- **Tekton e2e pipeline**: `integration-tests/pipelines/e2e-tests-pipeline.yaml` — pytest with `--cov` flags + codecov-cli upload
+- **GitHub Actions**: `.github/workflows/integration.yaml` — pytest with `--cov` + OIDC upload
+- **GitHub Actions**: `.github/workflows/unit.yaml` — OIDC upload with `unit-tests` flag
+- **Secret**: `konflux-devlake-mcp-coverport-secrets` with key `codecov-token` in `rh-konflux-devprod-tenant`
+
+Key files modified:
+- `integration-tests/pipelines/e2e-tests-pipeline.yaml` — Added `--cov` flags and coverage upload step
+- `.github/workflows/integration.yaml` — Added `--cov` flags and Codecov upload with OIDC
+- `.github/workflows/unit.yaml` — Switched from token to OIDC auth
+- `codecov.yml` — Added `integration-tests` and `e2e-tests` flags
+
 ## Best Practices
 
 1. **Validate early and often** - Always run podman/docker builds after Dockerfile changes, before modifying pipelines
@@ -1061,6 +1238,27 @@ build-image:
 - `.tekton/*-pull-request.yaml` — no `ENABLE_COVERAGE=true` in BUILD_ARGS
 - No `integration-tests/pipelines/` changes (directory doesn't exist)
 
+### Example 4: Python pytest-cov in Tekton (no container instrumentation)
+
+For a Python repository where Tekton e2e tests run pytest directly against
+source code (clone → install deps → pytest), no container instrumentation needed:
+
+**What's changed:**
+- `integration-tests/pipelines/e2e-tests-pipeline.yaml` — Add `--cov` flags to pytest, add upload step with codecov-cli
+- `.github/workflows/integration.yaml` — Add `--cov` flags, Codecov upload with OIDC
+- `.github/workflows/unit.yaml` — Switch to OIDC auth
+- `codecov.yml` — Add `integration-tests` and `e2e-tests` flags
+
+**What's NOT changed:**
+- `Containerfile` / `Dockerfile` — no coverage instrumentation needed
+- `.tekton/*-push.yaml` — no instrumented image build
+- `.tekton/*-pull-request.yaml` — no coverage build args
+- No coverport dependency added to the project
+
+**See Pattern D above for detailed implementation.**
+
+**Reference:** `konflux-devlake-mcp` repository.
+
 ## Summary
 
 This skill automates coverport integration by:
@@ -1091,7 +1289,11 @@ The integration enables automatic e2e test coverage collection and upload to Cod
 - **No external downloads**: Coverage server is a Go module dependency, not downloaded during build
 - **Build tags**: Clean separation of coverage code using Go build tags
 - **GitHub Actions support**: E2e coverage collection using coverport CLI container via podman
-- **Multiple collection patterns**: Kubernetes, local `--url`, or client-side test runner
+- **Multiple collection patterns**: Kubernetes, local `--url`, client-side test runner, or pytest-cov
+- **Pattern D: pytest-cov**: For Python projects where e2e tests run pytest directly against source — no container instrumentation needed, just `--cov` flags and codecov-cli upload
+- **Tekton codecov-cli support**: Handles the required `--commit-sha`, `--git-service`, and `--slug` flags that Tekton needs (no CI auto-detection)
+- **Coverage upload on test failure**: Captures test exit code to ensure coverage uploads even when tests fail in Tekton
+- **OIDC auth**: GitHub Actions workflows use OIDC (`use_oidc: true`) instead of token-based auth
 - **Early validation**: Podman/docker builds catch issues before CI/CD changes
 - **Clear checklists**: Pre and post-integration checklists ensure nothing is missed
 - **Enhanced troubleshooting**: Covers common scenarios including GitHub Actions specifics
