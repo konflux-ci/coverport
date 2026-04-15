@@ -100,7 +100,7 @@ func init() {
 	collectCmd.Flags().StringSliceVar(&podNames, "pods", nil, "Comma-separated list of pod names (requires --namespace)")
 
 	// Coverage options
-	collectCmd.Flags().IntVar(&coveragePort, "port", 9095, "Coverage server port")
+	collectCmd.Flags().IntVar(&coveragePort, "port", 53700, "Coverage server port")
 	collectCmd.Flags().StringVarP(&outputDir, "output", "o", "./coverage-output", "Output directory for coverage data")
 	collectCmd.Flags().StringVar(&testName, "test-name", "", "Test name (default: auto-generated)")
 	collectCmd.Flags().StringVar(&sourceDir, "source-dir", ".", "Source directory for path remapping")
