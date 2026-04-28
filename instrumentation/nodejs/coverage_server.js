@@ -263,19 +263,22 @@ function handleCoverageReset(req, res) {
  * or MAX_RETRIES attempts are exhausted.
  */
 function startServer() {
-  return new Promise((resolvePromise) => {
+  return new Promise((resolvePromise, rejectPromise) => {
     let attempt = 0;
 
     function tryPort(port) {
       const server = createServer(handleRequest);
 
       server.on('error', (err) => {
+        server.close();
         if (err.code === 'EADDRINUSE' && attempt < MAX_RETRIES - 1) {
           console.log(`${PRINT_PREFIX} Port ${port} unavailable: ${err.message}; trying next`);
           attempt++;
           tryPort(COVERAGE_PORT + attempt);
         } else {
-          console.error(`${PRINT_PREFIX} ERROR: Could not bind any port in range ${COVERAGE_PORT}–${COVERAGE_PORT + MAX_RETRIES - 1}`);
+          const msg = `Could not bind any port in range ${COVERAGE_PORT}–${COVERAGE_PORT + MAX_RETRIES - 1}: ${err.message}`;
+          console.error(`${PRINT_PREFIX} ERROR: ${msg}`);
+          rejectPromise(new Error(msg));
         }
       });
 
@@ -335,7 +338,13 @@ async function main() {
   console.log(`${PRINT_PREFIX} Coverage collection started (purely in-memory)`);
 
   // Start HTTP server for coverage endpoints
-  const server = await startServer();
+  let server;
+  try {
+    server = await startServer();
+  } catch (err) {
+    console.error(`${PRINT_PREFIX} Failed to start coverage server: ${err.message}`);
+    process.exit(1);
+  }
 
   // Run the application with coverage
   runAppWithCoverage(scriptPath);
