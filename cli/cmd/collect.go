@@ -100,7 +100,7 @@ func init() {
 	collectCmd.Flags().StringSliceVar(&podNames, "pods", nil, "Comma-separated list of pod names (requires --namespace)")
 
 	// Coverage options
-	collectCmd.Flags().IntVar(&coveragePort, "port", 53700, "Coverage server port")
+	collectCmd.Flags().IntVar(&coveragePort, "port", 53700, "Coverage server port (tries 53700 then 9095 when not set)")
 	collectCmd.Flags().StringVarP(&outputDir, "output", "o", "./coverage-output", "Output directory for coverage data")
 	collectCmd.Flags().StringVar(&testName, "test-name", "", "Test name (default: auto-generated)")
 	collectCmd.Flags().StringVar(&sourceDir, "source-dir", ".", "Source directory for path remapping")
@@ -177,14 +177,23 @@ func runCollect(cmd *cobra.Command, args []string) {
 		tag = fmt.Sprintf("%s-%s", testName, time.Now().Format("20060102-150405"))
 	}
 
+	// Build list of ports to try
+	portExplicit := cmd.Flags().Changed("port")
+	coveragePorts := []int{coveragePort}
+	if !portExplicit {
+		coveragePorts = []int{53700, 9095}
+	}
+
 	fmt.Println("🚀 coverport - Coverage Collection Tool")
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("Test Name:     %s\n", testName)
 	fmt.Printf("Output Dir:    %s\n", outputDir)
 	if coverageURL != "" {
 		fmt.Printf("Coverage URL:  %s\n", coverageURL)
-	} else {
+	} else if portExplicit {
 		fmt.Printf("Coverage Port: %d\n", coveragePort)
+	} else {
+		fmt.Printf("Coverage Ports: %v (auto)\n", coveragePorts)
 	}
 	fmt.Println(strings.Repeat("=", 60))
 
@@ -237,7 +246,7 @@ func runCollect(cmd *cobra.Command, args []string) {
 	// Collect coverage from each pod
 	successCount := 0
 	for _, podInfo := range podsToCollect {
-		componentInfo, err := collectFromPod(ctx, restConfig, podInfo, verbose)
+		componentInfo, err := collectFromPod(ctx, restConfig, podInfo, coveragePorts, portExplicit, verbose)
 		if err != nil {
 			printWarning("Failed to collect from %s/%s: %v", podInfo.Namespace, podInfo.Name, err)
 		} else {
@@ -387,7 +396,7 @@ func discoverPodsFromNames(ctx context.Context, clientset kubernetes.Interface, 
 	return pods, nil
 }
 
-func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discovery.PodInfo, verbose bool) (*manifest.ComponentInfo, error) {
+func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discovery.PodInfo, fallbackPorts []int, portExplicit bool, verbose bool) (*manifest.ComponentInfo, error) {
 	fmt.Printf("\n📊 Collecting from: %s/%s (component: %s)\n", podInfo.Namespace, podInfo.Name, podInfo.ComponentName)
 
 	// Create component-specific output directory
@@ -409,10 +418,35 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 		client.SetDefaultFilters(filters)
 	}
 
-	// Collect coverage
+	// Determine which port(s) to try.
+	// When --port is explicit, use only that port.
+	// Otherwise, exec into the target container to detect the listening port;
+	// fall back to the static list if detection fails.
+	ports := fallbackPorts
+	if !portExplicit && podInfo.ContainerName != "" {
+		detected, err := client.DetectCoveragePort(ctx, podInfo.Name, podInfo.ContainerName)
+		if err == nil {
+			fmt.Printf("  🔍 Detected coverage port %d in container %s\n", detected, podInfo.ContainerName)
+			ports = []int{detected}
+		} else if verbose {
+			fmt.Printf("  ⚠️  Port detection failed (%v), falling back to %v\n", err, fallbackPorts)
+		}
+	}
+
+	// Collect coverage, trying each port in order
 	componentTestName := fmt.Sprintf("%s-%s", testName, podInfo.ComponentName)
-	if err := client.CollectCoverageFromPodWithContainer(ctx, podInfo.Name, podInfo.ContainerName, componentTestName, coveragePort); err != nil {
-		return nil, fmt.Errorf("collect coverage: %w", err)
+	var lastErr error
+	for _, port := range ports {
+		lastErr = client.CollectCoverageFromPodWithContainer(ctx, podInfo.Name, podInfo.ContainerName, componentTestName, port)
+		if lastErr == nil {
+			break
+		}
+		if len(ports) > 1 {
+			fmt.Printf("  ⚠️  Port %d failed, trying next...\n", port)
+		}
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("collect coverage (tried ports %v): %w", ports, lastErr)
 	}
 
 	// Note: Component metadata is now stored in the top-level manifest, not as separate files

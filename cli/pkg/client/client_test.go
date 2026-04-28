@@ -599,6 +599,103 @@ func TestCoverageResponse_JSONSerialization(t *testing.T) {
 	}
 }
 
+func TestCollectCoverageFromURL_IdentityHeaderWarning(t *testing.T) {
+	metaData := []byte("meta content")
+	counterData := []byte("counter content")
+
+	response := CoverageResponse{
+		MetaFilename:     "covmeta.test",
+		MetaData:         base64.StdEncoding.EncodeToString(metaData),
+		CountersFilename: "covcounters.test",
+		CountersData:     base64.StdEncoding.EncodeToString(counterData),
+		Timestamp:        time.Now().Unix(),
+	}
+
+	tests := []struct {
+		name           string
+		setHeader      bool
+		expectNoHeader bool
+	}{
+		{
+			name:           "with identity header",
+			setHeader:      true,
+			expectNoHeader: false,
+		},
+		{
+			name:           "without identity header (old server)",
+			setHeader:      false,
+			expectNoHeader: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.setHeader {
+					w.Header().Set("X-Art-Coverage-Server", "1")
+					w.Header().Set("X-Art-Coverage-Pid", "12345")
+					w.Header().Set("X-Art-Coverage-Binary", "test-app")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
+			}))
+			defer server.Close()
+
+			tempDir, _ := os.MkdirTemp("", "coverage-identity-test-*")
+			defer os.RemoveAll(tempDir)
+
+			client := &CoverageClient{
+				outputDir:  tempDir,
+				httpClient: &http.Client{Timeout: 10 * time.Second},
+			}
+
+			// Should succeed regardless of header presence
+			err := client.CollectCoverageFromURL(server.URL, "test-case")
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDetectCoveragePort_NoConfig(t *testing.T) {
+	client := &CoverageClient{
+		clientset:  nil,
+		restConfig: nil,
+		namespace:  "test-ns",
+	}
+
+	_, err := client.DetectCoveragePort(context.Background(), "test-pod", "test-container")
+	if err == nil {
+		t.Error("Expected error when kubernetes client is not configured")
+	}
+	if !strings.Contains(err.Error(), "kubernetes client not configured") {
+		t.Errorf("Expected 'kubernetes client not configured' error, got: %v", err)
+	}
+}
+
+func TestDetectCoveragePort_ExecFailure(t *testing.T) {
+	clientset := fake.NewSimpleClientset(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "test-ns",
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	})
+
+	client := &CoverageClient{
+		clientset:  clientset,
+		restConfig: nil,
+		namespace:  "test-ns",
+	}
+
+	// restConfig is nil so DetectCoveragePort returns the guard error
+	_, err := client.DetectCoveragePort(context.Background(), "test-pod", "test-container")
+	if err == nil {
+		t.Error("Expected error when restConfig is nil")
+	}
+}
+
 // func TestPrintCoverageSummary(t *testing.T) {
 // 	tempDir, _ := os.MkdirTemp("", "summary-test-*")
 // 	defer os.RemoveAll(tempDir)
