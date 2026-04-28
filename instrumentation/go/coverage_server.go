@@ -32,6 +32,7 @@ import (
 	"path/filepath"
 	"runtime/coverage"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -40,10 +41,12 @@ const (
 	MaxRetries  = 50    // Maximum number of ports to try
 )
 
-// cachedHash stores the metadata hash after the first collection so
-// that subsequent requests with ?nometa=1 can still produce correct
-// counter filenames.
-var cachedHash string
+// metaHashOnce ensures the metadata hash is computed exactly once.
+// The hash is process-stable so it never changes after the first read.
+var (
+	metaHashOnce sync.Once
+	metaHash     string
+)
 
 // CoverageResponse represents the JSON response from the coverage endpoint
 type CoverageResponse struct {
@@ -140,6 +143,26 @@ func startCoverageServer() {
 	log.Printf("[COVERAGE] ERROR: Could not bind any port in range %d–%d", startPort, startPort+MaxRetries-1)
 }
 
+// ensureMetaHash computes and caches the metadata hash exactly once.
+// The hash is derived from the binary's coverage metadata which is
+// constant for the lifetime of the process.
+func ensureMetaHash() {
+	metaHashOnce.Do(func() {
+		var buf bytes.Buffer
+		if err := coverage.WriteMeta(&buf); err != nil {
+			log.Printf("[COVERAGE] Warning: could not prime metadata hash: %v", err)
+			metaHash = "unknown"
+			return
+		}
+		data := buf.Bytes()
+		if len(data) >= 32 {
+			metaHash = fmt.Sprintf("%x", data[16:32])
+		} else {
+			metaHash = "unknown"
+		}
+	})
+}
+
 // CoverageHandler collects coverage data and returns it via HTTP as JSON.
 // Pass ?nometa=1 to skip metadata collection (useful after the first fetch
 // since metadata does not change for the lifetime of the process).
@@ -152,6 +175,9 @@ func CoverageHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("[COVERAGE] Collecting coverage data...")
 	}
 
+	// Ensure the hash is primed (safe for concurrent use, runs once)
+	ensureMetaHash()
+
 	var metaData []byte
 	var metaFilename string
 	if !skipMeta {
@@ -161,6 +187,7 @@ func CoverageHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		metaData = metaBuf.Bytes()
+		metaFilename = fmt.Sprintf("covmeta.%s", metaHash)
 	}
 
 	// Collect counters
@@ -171,27 +198,9 @@ func CoverageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	counterData := counterBuf.Bytes()
 
-	// Extract hash from metadata to create proper filenames.
-	// Cache the hash so that ?nometa=1 requests can still produce correct
-	// counter filenames without re-collecting metadata.
-	var hash string
-	if len(metaData) >= 32 {
-		hashBytes := metaData[16:32]
-		hash = fmt.Sprintf("%x", hashBytes)
-		cachedHash = hash
-	} else if cachedHash != "" {
-		hash = cachedHash
-	} else {
-		hash = "unknown"
-	}
-
-	if !skipMeta {
-		metaFilename = fmt.Sprintf("covmeta.%s", hash)
-	}
-
-	// Generate counter filename
+	// Generate counter filename using the cached hash
 	timestamp := time.Now().UnixNano()
-	counterFilename := fmt.Sprintf("covcounters.%s.%d.%d", hash, os.Getpid(), timestamp)
+	counterFilename := fmt.Sprintf("covcounters.%s.%d.%d", metaHash, os.Getpid(), timestamp)
 
 	log.Printf("[COVERAGE] Collected %d bytes metadata, %d bytes counters",
 		len(metaData), len(counterData))

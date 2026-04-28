@@ -35,7 +35,7 @@ This command can discover pods in multiple ways:
 
 Coverage data is organized by component and can be automatically pushed to an OCI registry.`,
 	Example: `  # Collect from localhost (for local development)
-  coverport collect --url http://localhost:9095 --test-name my-local-test
+  coverport collect --url http://localhost:53700 --test-name my-local-test
 
   # Collect using Konflux snapshot
   coverport collect --snapshot='{"components":[{"name":"app","containerImage":"quay.io/user/app@sha256:abc"}]}'
@@ -91,7 +91,7 @@ func init() {
 	rootCmd.AddCommand(collectCmd)
 
 	// Discovery options
-	collectCmd.Flags().StringVar(&coverageURL, "url", "", "Direct HTTP URL to coverage server (e.g., http://localhost:9095)")
+	collectCmd.Flags().StringVar(&coverageURL, "url", "", "Direct HTTP URL to coverage server (e.g., http://localhost:53700)")
 	collectCmd.Flags().StringVar(&snapshotJSON, "snapshot", "", "Konflux/Tekton snapshot JSON")
 	collectCmd.Flags().StringVar(&snapshotFile, "snapshot-file", "", "Path to snapshot JSON file")
 	collectCmd.Flags().StringSliceVar(&images, "images", nil, "Comma-separated list of container images")

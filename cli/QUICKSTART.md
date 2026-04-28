@@ -2,7 +2,7 @@
 
 Get started with `coverport` in 5 minutes!
 
-> **New**: `coverport` now supports direct URL collection (`--url http://localhost:9095`) for local development, and uses a manifest-based workflow for simplified batch processing. See `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` for details.
+> **New**: `coverport` now supports direct URL collection (`--url http://localhost:53700`) for local development, and uses a manifest-based workflow for simplified batch processing. See `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` for details.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ Get started with `coverport` in 5 minutes!
    - **Go**: Build with `go build -cover -o app` and run [go-coverage-http](https://github.com/psturc/go-coverage-http) server
    - **Python**: Add instrumentation files from [py-coverage-http](https://github.com/psturc/py-coverage-http) and build a test Docker image
 
-2. **Coverage Server Running**: Your app must run the coverage HTTP server (port 9095)
+2. **Coverage Server Running**: Your app must run the coverage HTTP server (port 53700)
 
 3. **Kubernetes Access**: Valid kubeconfig with access to the cluster
 
@@ -101,14 +101,14 @@ Expected output:
 ============================================================
 Test Name:     my-test
 Output Dir:    ./coverage-output
-Coverage Port: 9095
+Coverage Port: 53700
 ============================================================
 
 📍 Discovered 1 pod(s) for coverage collection:
   1. default/myapp-pod-1 (component: myapp, image: quay.io/myorg/myapp:v1.0.0)
 
 📊 Collecting from: default/myapp-pod-1 (component: myapp)
-✅ Port forward ready: localhost:54321 -> pod:9095
+✅ Port forward ready: localhost:54321 -> pod:53700
 📁 Saved: ./coverage-output/myapp/my-test-myapp/covmeta.xxx
 📁 Saved: ./coverage-output/myapp/my-test-myapp/covcounters.xxx
 📁 Saved: ./coverage-output/myapp/my-test-myapp/metadata.json
@@ -237,8 +237,8 @@ coverage-output/
 **Solution**:
 1. Verify coverage server is running in the pod:
    ```bash
-   kubectl port-forward pod/myapp-pod-1 9095:9095
-   curl http://localhost:9095/health
+   kubectl port-forward pod/myapp-pod-1 53700:53700
+   curl http://localhost:53700/health
    ```
 2. **Go**: Check `GOCOVERDIR` is set and app was built with `-cover` flag
 3. **Python**: Check `COVERAGE_PROCESS_START` is set and `sitecustomize.py` is installed in site-packages

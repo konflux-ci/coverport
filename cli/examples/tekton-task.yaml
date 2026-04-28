@@ -17,7 +17,7 @@ spec:
     - name: COVERAGE_PORT
       description: Port where coverage server is listening
       type: string
-      default: "9095"
+      default: "53700"
     - name: PUSH_ARTIFACT
       description: Whether to push coverage artifact to registry
       type: string

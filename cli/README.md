@@ -48,11 +48,11 @@ Perfect for local development and testing:
 
 ```bash
 # Start your app with coverage instrumentation on port 8080
-# (with coverage server on port 9095)
+# (with coverage server on port 53700)
 
 # Collect coverage directly
 coverport collect \
-  --url http://localhost:9095 \
+  --url http://localhost:53700 \
   --test-name="local-e2e-test" \
   --output=./coverage-output
 
@@ -101,7 +101,7 @@ Collect raw coverage data from HTTP endpoints or Kubernetes pods.
 
 **Discovery Methods** (choose one):
 
-- `--url` - Direct HTTP URL to coverage server (e.g., `http://localhost:9095`) - **New!**
+- `--url` - Direct HTTP URL to coverage server (e.g., `http://localhost:53700`) - **New!**
 - `--snapshot` - Konflux/Tekton snapshot JSON (recommended for CI/CD)
 - `--snapshot-file` - Path to snapshot JSON file
 - `--images` - Comma-separated list of container images
@@ -112,7 +112,7 @@ Collect raw coverage data from HTTP endpoints or Kubernetes pods.
 
 **Coverage Options:**
 
-- `--port` - Coverage server port (default: 9095)
+- `--port` - Coverage server port (default: 53700, falls back to 9095 when not set)
 - `--output`, `-o` - Output directory (default: ./coverage-output)
 - `--test-name` - Test name for identification (auto-generated if not specified)
 - `--source-dir` - Source directory for path remapping (default: .)
@@ -391,7 +391,7 @@ coverport collect \
 ### 2. Coverage Collection
 
 For each discovered pod:
-1. **Port-forward**: Establishes port-forward to the coverage server (default: 9095)
+1. **Port-forward**: Establishes port-forward to the coverage server (default: 53700)
 2. **Health check**: Checks `/health` to auto-detect language (Go vs Python)
 3. **HTTP request**: Sends request to `/coverage` endpoint
 4. **Download**: Retrieves coverage data
@@ -438,7 +438,7 @@ When `--push` is enabled:
 
 1. Build with coverage instrumentation: `go build -cover`
 2. Set `GOCOVERDIR` environment variable
-3. Run the [go-coverage-http](https://github.com/psturc/go-coverage-http) server (port 9095 by default)
+3. Run the [go-coverage-http](https://github.com/psturc/go-coverage-http) server (port 53700 by default)
 4. Expose the coverage port in the container
 
 ```yaml
@@ -449,17 +449,17 @@ containers:
   - name: GOCOVERDIR
     value: /tmp/coverage
   - name: COVERAGE_SERVER_PORT
-    value: "9095"
+    value: "53700"
   ports:
   - containerPort: 8080
-  - containerPort: 9095
+  - containerPort: 53700
 ```
 
 #### Python Applications
 
 1. Add coverage instrumentation files from [py-coverage-http](https://github.com/psturc/py-coverage-http)
 2. Build a test Docker image with the coverage wrapper
-3. Coverage server runs automatically on port 9095
+3. Coverage server runs automatically on port 53700
 
 ```yaml
 containers:
@@ -469,14 +469,14 @@ containers:
   - name: COVERAGE_PROCESS_START
     value: /app/.coveragerc
   - name: COVERAGE_PORT
-    value: "9095"
+    value: "53700"
   - name: COVERAGE_DATA_DIR
     value: /dev/shm
   - name: TMPDIR
     value: /dev/shm
   ports:
   - containerPort: 8080
-  - containerPort: 9095
+  - containerPort: 53700
   securityContext:
     readOnlyRootFilesystem: true
 ```
@@ -527,7 +527,7 @@ coverage-output/
 
 **Solutions:**
 - Verify coverage server is running in the pod
-- Check port is correct (default: 9095)
+- Check port is correct (default: 53700)
 - Ensure pod has coverage instrumentation
 - **Go**: Verify `GOCOVERDIR` is set in the container
 - **Python**: Verify `COVERAGE_PROCESS_START` is set and `sitecustomize.py` is installed

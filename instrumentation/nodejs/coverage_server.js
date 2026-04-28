@@ -2,27 +2,68 @@
 /**
  * Coverage HTTP Server Wrapper for Node.js
  * 
+ * Compatible with openshift-eng/art-tools coverage protocol.
+ * 
  * A pure wrapper that runs any Node.js script with coverage collection and
  * exposes coverage data via HTTP. Completely application-agnostic.
+ * 
+ * Multiple containers in a pod may each start a coverage server. The server
+ * tries ports starting at COVERAGE_PORT (default 53700) and increments up to
+ * MAX_RETRIES times until it finds a free port.
+ * 
+ * Clients can identify a coverage server via response headers:
+ *   X-Art-Coverage-Server, X-Art-Coverage-Pid, X-Art-Coverage-Binary, etc.
  * 
  * Usage:
  *     node coverage_server.js app.js
  *     node coverage_server.js path/to/script.js
  * 
  * Environment Variables:
- *     COVERAGE_PORT - Port for coverage HTTP server (default: 9095)
+ *     COVERAGE_PORT - Starting port for coverage HTTP server (default: 53700)
  */
 
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
+import { dirname, resolve, basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import inspector from 'inspector';
 import v8ToIstanbul from 'v8-to-istanbul';
 
 // Configuration
-const COVERAGE_PORT = parseInt(process.env.COVERAGE_PORT || '9095', 10);
+const DEFAULT_PORT = 53700;
+const MAX_RETRIES = 50;
+const COVERAGE_PORT = parseInt(process.env.COVERAGE_PORT || String(DEFAULT_PORT), 10);
 const PRINT_PREFIX = '[coverage-wrapper]';
+
+// Identity headers (built once at startup)
+const IDENTITY_HEADERS = {
+  'X-Art-Coverage-Server': '1',
+  'X-Art-Coverage-Pid': String(process.pid),
+  'X-Art-Coverage-Binary': basename(process.execPath),
+};
+if (process.env.SOURCE_GIT_COMMIT) {
+  IDENTITY_HEADERS['X-Art-Coverage-Source-Commit'] = process.env.SOURCE_GIT_COMMIT;
+}
+if (process.env.SOURCE_GIT_URL) {
+  IDENTITY_HEADERS['X-Art-Coverage-Source-Url'] = process.env.SOURCE_GIT_URL;
+}
+const softwareGroup = process.env.SOFTWARE_GROUP || process.env.__doozer_group || '';
+if (softwareGroup) {
+  IDENTITY_HEADERS['X-Art-Coverage-Software-Group'] = softwareGroup;
+}
+const softwareKey = process.env.SOFTWARE_KEY || process.env.__doozer_key || '';
+if (softwareKey) {
+  IDENTITY_HEADERS['X-Art-Coverage-Software-Key'] = softwareKey;
+}
+
+/**
+ * Set identity headers on a response
+ */
+function setIdentityHeaders(res) {
+  for (const [key, value] of Object.entries(IDENTITY_HEADERS)) {
+    res.setHeader(key, value);
+  }
+}
 
 // Global coverage tracking (purely in-memory - no filesystem needed!)
 let coverageSession = null;
@@ -31,6 +72,14 @@ let coverageSession = null;
  * HTTP handler for coverage endpoints
  */
 function handleRequest(req, res) {
+  setIdentityHeaders(res);
+
+  if (req.method === 'HEAD') {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+
   const url = new URL(req.url, `http://localhost:${COVERAGE_PORT}`);
   const path = url.pathname;
   const label = url.searchParams.get('name') || 'session';
@@ -209,14 +258,36 @@ function handleCoverageReset(req, res) {
 }
 
 /**
- * Start the coverage HTTP server
+ * Start the coverage HTTP server.
+ * Tries successive ports starting from COVERAGE_PORT until one is available
+ * or MAX_RETRIES attempts are exhausted.
  */
 function startServer() {
-  const server = createServer(handleRequest);
-  server.listen(COVERAGE_PORT, '0.0.0.0', () => {
-    console.log(`${PRINT_PREFIX} HTTP server listening on port ${COVERAGE_PORT}`);
+  return new Promise((resolvePromise) => {
+    let attempt = 0;
+
+    function tryPort(port) {
+      const server = createServer(handleRequest);
+
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE' && attempt < MAX_RETRIES - 1) {
+          console.log(`${PRINT_PREFIX} Port ${port} unavailable: ${err.message}; trying next`);
+          attempt++;
+          tryPort(COVERAGE_PORT + attempt);
+        } else {
+          console.error(`${PRINT_PREFIX} ERROR: Could not bind any port in range ${COVERAGE_PORT}–${COVERAGE_PORT + MAX_RETRIES - 1}`);
+        }
+      });
+
+      server.listen(port, '0.0.0.0', () => {
+        console.log(`${PRINT_PREFIX} HTTP server listening on port ${port} (pid ${process.pid})`);
+        console.log(`${PRINT_PREFIX} Endpoints: GET :${port}/coverage, GET :${port}/health, HEAD :${port}/*`);
+        resolvePromise(server);
+      });
+    }
+
+    tryPort(COVERAGE_PORT);
   });
-  return server;
 }
 
 /**
@@ -248,7 +319,7 @@ async function runAppWithCoverage(scriptPath) {
 /**
  * Main entry point
  */
-function main() {
+async function main() {
   if (process.argv.length < 3) {
     console.error(`Usage: node ${process.argv[1]} <script.js> [args...]`);
     process.exit(1);
@@ -264,7 +335,7 @@ function main() {
   console.log(`${PRINT_PREFIX} Coverage collection started (purely in-memory)`);
 
   // Start HTTP server for coverage endpoints
-  const server = startServer();
+  const server = await startServer();
 
   // Run the application with coverage
   runAppWithCoverage(scriptPath);
