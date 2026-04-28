@@ -42,7 +42,7 @@ import base64
 import glob
 import urllib.parse
 from datetime import datetime, timezone
-from threading import Thread
+from threading import Thread, Event
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 import coverage
@@ -296,11 +296,12 @@ class CoverageHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def run_server():
+def run_server(ready_event=None):
     """Run the coverage HTTP server.
 
     Tries successive ports starting from COVERAGE_PORT until one is available
-    or MAX_RETRIES attempts are exhausted.
+    or MAX_RETRIES attempts are exhausted. If a ready_event is provided, it is
+    set once the server is listening so callers can wait for readiness.
     """
     class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
         daemon_threads = True
@@ -312,6 +313,8 @@ def run_server():
             server = ThreadedHTTPServer(("0.0.0.0", port), CoverageHandler)
             print(f"{PRINT_PREFIX} HTTP server listening on port {port} (pid {os.getpid()})", flush=True)
             print(f"{PRINT_PREFIX} Endpoints: GET :{port}/coverage, GET :{port}/health, HEAD :{port}/*", flush=True)
+            if ready_event:
+                ready_event.set()
             server.serve_forever()
             return
         except OSError as e:
@@ -366,9 +369,14 @@ def main():
     # Set up environment for coverage collection
     setup_environment()
 
-    # Start HTTP server in background thread
-    server_thread = Thread(target=run_server, daemon=True)
+    # Start HTTP server in background thread with readiness handshake
+    server_ready = Event()
+    server_thread = Thread(target=run_server, args=(server_ready,), daemon=True)
     server_thread.start()
+
+    if not server_ready.wait(timeout=10):
+        print(f"{PRINT_PREFIX} ERROR: Coverage server failed to start within 10s", flush=True)
+        sys.exit(1)
 
     # Prepare to run the target script
     script_args = sys.argv[1:]

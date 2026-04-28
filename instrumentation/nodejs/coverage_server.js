@@ -271,7 +271,7 @@ function startServer() {
 
       server.on('error', (err) => {
         server.close();
-        if (err.code === 'EADDRINUSE' && attempt < MAX_RETRIES - 1) {
+        if (attempt < MAX_RETRIES - 1) {
           console.log(`${PRINT_PREFIX} Port ${port} unavailable: ${err.message}; trying next`);
           attempt++;
           tryPort(COVERAGE_PORT + attempt);
