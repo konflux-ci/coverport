@@ -5,18 +5,31 @@ Coverage HTTP Server Wrapper (Multiprocess Edition)
 A wrapper that enables coverage collection across all processes (including
 Gunicorn workers) and exposes combined coverage data via HTTP.
 
+Compatible with openshift-eng/art-tools coverage protocol.
+
 Based on recommendations from coverage.py documentation and Gemini research:
 - Uses sitecustomize.py for global process instrumentation
 - Uses Gunicorn worker_exit hooks for reliable data saving
 - Stores data in /dev/shm (writable even with readOnlyRootFilesystem)
 - Combines all process coverage files on /coverage request
 
+Multiple containers in a pod may each start a coverage server. The server
+tries ports starting at COVERAGE_PORT (default 53700) and increments up to
+MAX_RETRIES times until it finds a free port.
+
+Clients can identify a coverage server by checking the response headers:
+    X-Art-Coverage-Server:         1
+    X-Art-Coverage-Pid:            <pid>
+    X-Art-Coverage-Binary:         <binary-name>
+    X-Art-Coverage-Source-Commit:  <commit>  (if SOURCE_GIT_COMMIT is set)
+    X-Art-Coverage-Source-Url:     <url>     (if SOURCE_GIT_URL is set)
+
 Usage:
     python coverage_server.py -m gunicorn -c gunicorn_coverage.py app:app
     python coverage_server.py app.py
 
 Environment Variables:
-    COVERAGE_PORT - Port for coverage HTTP server (default: 9095)
+    COVERAGE_PORT - Starting port for coverage HTTP server (default: 53700)
     COVERAGE_PROCESS_START - Path to .coveragerc (set automatically)
     COVERAGE_DATA_DIR - Directory for coverage files (default: /dev/shm)
 """
@@ -29,13 +42,15 @@ import base64
 import glob
 import urllib.parse
 from datetime import datetime, timezone
-from threading import Thread
+from threading import Thread, Event
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 import coverage
 
 # Configuration
-COVERAGE_PORT = int(os.getenv("COVERAGE_PORT", "9095"))
+DEFAULT_PORT = 53700
+MAX_RETRIES = 50
+COVERAGE_PORT = int(os.getenv("COVERAGE_PORT", str(DEFAULT_PORT)))
 # Default to /dev/shm (Linux containers) or /tmp/coverage-test (macOS)
 _DEFAULT_DIR = "/dev/shm" if os.path.exists("/dev/shm") else "/tmp/coverage-test"
 COVERAGE_DATA_DIR = os.getenv("COVERAGE_DATA_DIR", _DEFAULT_DIR)
@@ -46,12 +61,50 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_COVERAGERC = os.path.join(SCRIPT_DIR, ".coveragerc")
 
 
+def _build_identity_headers():
+    """Build identity headers once at import time."""
+    headers = {
+        "X-Art-Coverage-Server": "1",
+        "X-Art-Coverage-Pid": str(os.getpid()),
+        "X-Art-Coverage-Binary": os.path.basename(sys.executable),
+    }
+    for header, env_var in [
+        ("X-Art-Coverage-Source-Commit", "SOURCE_GIT_COMMIT"),
+        ("X-Art-Coverage-Source-Url", "SOURCE_GIT_URL"),
+    ]:
+        val = os.environ.get(env_var, "")
+        if val:
+            headers[header] = val
+
+    software_group = os.environ.get("SOFTWARE_GROUP", "") or os.environ.get("__doozer_group", "")
+    if software_group:
+        headers["X-Art-Coverage-Software-Group"] = software_group
+    software_key = os.environ.get("SOFTWARE_KEY", "") or os.environ.get("__doozer_key", "")
+    if software_key:
+        headers["X-Art-Coverage-Software-Key"] = software_key
+
+    return headers
+
+
+_IDENTITY_HEADERS = _build_identity_headers()
+
+
 class CoverageHandler(BaseHTTPRequestHandler):
     """HTTP handler for coverage endpoints."""
 
     def log_message(self, format, *args):
         """Suppress default request logging"""
         pass
+
+    def end_headers(self):
+        for header, value in _IDENTITY_HEADERS.items():
+            self.send_header(header, value)
+        super().end_headers()
+
+    def do_HEAD(self):
+        """Respond to HEAD requests with identity headers."""
+        self.send_response(200)
+        self.end_headers()
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -243,14 +296,31 @@ class CoverageHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def run_server():
-    """Run the coverage HTTP server."""
+def run_server(ready_event=None):
+    """Run the coverage HTTP server.
+
+    Tries successive ports starting from COVERAGE_PORT until one is available
+    or MAX_RETRIES attempts are exhausted. If a ready_event is provided, it is
+    set once the server is listening so callers can wait for readiness.
+    """
     class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
         daemon_threads = True
+        allow_reuse_address = True
 
-    server = ThreadedHTTPServer(("0.0.0.0", COVERAGE_PORT), CoverageHandler)
-    print(f"{PRINT_PREFIX} HTTP server listening on port {COVERAGE_PORT}", flush=True)
-    server.serve_forever()
+    for attempt in range(MAX_RETRIES):
+        port = COVERAGE_PORT + attempt
+        try:
+            server = ThreadedHTTPServer(("0.0.0.0", port), CoverageHandler)
+            print(f"{PRINT_PREFIX} HTTP server listening on port {port} (pid {os.getpid()})", flush=True)
+            print(f"{PRINT_PREFIX} Endpoints: GET :{port}/coverage, GET :{port}/health, HEAD :{port}/*", flush=True)
+            if ready_event:
+                ready_event.set()
+            server.serve_forever()
+            return
+        except OSError as e:
+            print(f"{PRINT_PREFIX} Port {port} unavailable: {e}; trying next", flush=True)
+
+    print(f"{PRINT_PREFIX} ERROR: Could not bind any port in range {COVERAGE_PORT}–{COVERAGE_PORT + MAX_RETRIES - 1}", flush=True)
 
 
 def setup_environment():
@@ -299,9 +369,14 @@ def main():
     # Set up environment for coverage collection
     setup_environment()
 
-    # Start HTTP server in background thread
-    server_thread = Thread(target=run_server, daemon=True)
+    # Start HTTP server in background thread with readiness handshake
+    server_ready = Event()
+    server_thread = Thread(target=run_server, args=(server_ready,), daemon=True)
     server_thread.start()
+
+    if not server_ready.wait(timeout=10):
+        print(f"{PRINT_PREFIX} ERROR: Coverage server failed to start within 10s", flush=True)
+        sys.exit(1)
 
     # Prepare to run the target script
     script_args = sys.argv[1:]

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -618,6 +619,38 @@ func (c *CoverageClient) detectContainerByPort(ctx context.Context, podName stri
 	return ""
 }
 
+// DetectCoveragePort execs into the specified container and finds which port
+// in the coverage range (53700..53749, plus legacy 9095) is listening.
+// Returns the detected port or an error if none found.
+func (c *CoverageClient) DetectCoveragePort(ctx context.Context, podName, containerName string) (int, error) {
+	if c.clientset == nil || c.restConfig == nil {
+		return 0, fmt.Errorf("kubernetes client not configured")
+	}
+
+	// Use bash /dev/tcp probe — works in most containers without extra tools.
+	// Prints the first listening port and exits.
+	cmd := []string{"bash", "-c",
+		`for p in $(seq 53700 53749) 9095; do (echo >/dev/tcp/localhost/$p) 2>/dev/null && echo $p && exit 0; done; exit 1`,
+	}
+
+	stdout, _, err := c.execInPod(ctx, podName, containerName, cmd)
+	if err != nil {
+		return 0, fmt.Errorf("exec port detection: %w", err)
+	}
+
+	portStr := strings.TrimSpace(stdout)
+	if portStr == "" {
+		return 0, fmt.Errorf("no coverage port detected in container %s", containerName)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, fmt.Errorf("parse detected port %q: %w", portStr, err)
+	}
+
+	return port, nil
+}
+
 // createExecutor creates a remote command executor
 func (c *CoverageClient) createExecutor(req *rest.Request) (remotecommand.Executor, error) {
 	exec, err := remotecommand.NewSPDYExecutor(c.restConfig, "POST", req.URL())
@@ -699,6 +732,11 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("coverage endpoint returned %d: %s", resp.StatusCode, body)
+	}
+
+	// Verify we're talking to a coverage server (v0.0.2+ sets this header)
+	if resp.Header.Get("X-Art-Coverage-Server") == "" {
+		fmt.Printf("  ⚠️  Response missing X-Art-Coverage-Server header (may be an older server or wrong endpoint)\n")
 	}
 
 	// Read response body into buffer for format detection

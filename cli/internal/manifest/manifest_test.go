@@ -8,7 +8,7 @@ import (
 
 func TestNewCollectionManifest(t *testing.T) {
 	params := CollectionParameters{
-		CoveragePort: 9095,
+		CoveragePort: 53700,
 		Filters:      []string{"coverage_server.go"},
 		Format:       "go",
 		Namespace:    "test-ns",
@@ -28,8 +28,8 @@ func TestNewCollectionManifest(t *testing.T) {
 	if len(m.Components) != 0 {
 		t.Errorf("got %d components, want 0", len(m.Components))
 	}
-	if m.CollectionParams.CoveragePort != 9095 {
-		t.Errorf("got port %d, want 9095", m.CollectionParams.CoveragePort)
+	if m.CollectionParams.CoveragePort != 53700 {
+		t.Errorf("got port %d, want 53700", m.CollectionParams.CoveragePort)
 	}
 }
 

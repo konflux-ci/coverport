@@ -12,43 +12,35 @@ import (
 )
 
 func TestCoverageHandler_Success(t *testing.T) {
-	// Skip if coverage is not enabled
 	if !isCoverageEnabled() {
 		t.Skip("Skipping test - coverage not enabled (run with: go test -cover)")
 	}
 
-	// Create a request to the coverage handler
 	req, err := http.NewRequest("GET", "/coverage", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a ResponseRecorder to record the response
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(CoverageHandler)
 
-	// Call the handler
 	handler.ServeHTTP(rr, req)
 
-	// Check the status code
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("Handler returned wrong status code: got %v want %v (body: %s)",
 			status, http.StatusOK, rr.Body.String())
 	}
 
-	// Check the content type
 	contentType := rr.Header().Get("Content-Type")
 	if !strings.Contains(contentType, "application/json") {
 		t.Errorf("Expected Content-Type to be application/json, got %s", contentType)
 	}
 
-	// Parse the response
 	var response CoverageResponse
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
 
-	// Verify response structure
 	if response.MetaFilename == "" {
 		t.Error("MetaFilename should not be empty")
 	}
@@ -61,7 +53,6 @@ func TestCoverageHandler_Success(t *testing.T) {
 		t.Error("Timestamp should not be zero")
 	}
 
-	// Verify filenames have correct format
 	if !strings.HasPrefix(response.MetaFilename, "covmeta.") {
 		t.Errorf("MetaFilename should start with 'covmeta.', got: %s", response.MetaFilename)
 	}
@@ -70,7 +61,6 @@ func TestCoverageHandler_Success(t *testing.T) {
 		t.Errorf("CountersFilename should start with 'covcounters.', got: %s", response.CountersFilename)
 	}
 
-	// Verify base64 encoded data
 	if response.MetaData == "" {
 		t.Error("MetaData should not be empty")
 	}
@@ -79,7 +69,6 @@ func TestCoverageHandler_Success(t *testing.T) {
 		t.Error("CountersData should not be empty")
 	}
 
-	// Verify base64 data can be decoded
 	metaBytes, err := base64.StdEncoding.DecodeString(response.MetaData)
 	if err != nil {
 		t.Errorf("MetaData is not valid base64: %v", err)
@@ -97,24 +86,18 @@ func TestCoverageHandler_Success(t *testing.T) {
 	}
 }
 
-// isCoverageEnabled checks if coverage is enabled in the test binary
 func isCoverageEnabled() bool {
-	// The coverage package returns an error if coverage is not enabled
-	// Specifically: "error: no meta-data available (binary not built with -cover?)"
 	var buf bytes.Buffer
 	err := coverage.WriteMeta(&buf)
 
-	// If no error and we have data, coverage is definitely enabled
 	if err == nil && buf.Len() > 0 {
 		return true
 	}
 
-	// If we get an error about no meta-data, coverage is not enabled
 	if err != nil && strings.Contains(err.Error(), "no meta-data available") {
 		return false
 	}
 
-	// Otherwise assume coverage is enabled (might be edge case)
 	return err == nil
 }
 
@@ -123,7 +106,6 @@ func TestCoverageHandler_POST(t *testing.T) {
 		t.Skip("Skipping test - coverage not enabled (run with: go test -cover)")
 	}
 
-	// Test that POST requests also work
 	req, err := http.NewRequest("POST", "/coverage", strings.NewReader(`{"test_name":"my-test"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -150,6 +132,59 @@ func TestCoverageHandler_POST(t *testing.T) {
 	}
 }
 
+func TestCoverageHandler_NoMeta(t *testing.T) {
+	if !isCoverageEnabled() {
+		t.Skip("Skipping test - coverage not enabled (run with: go test -cover)")
+	}
+
+	// First request without nometa to prime the hash cache
+	req1, _ := http.NewRequest("GET", "/coverage", nil)
+	rr1 := httptest.NewRecorder()
+	handler := http.HandlerFunc(CoverageHandler)
+	handler.ServeHTTP(rr1, req1)
+
+	var firstResp CoverageResponse
+	json.NewDecoder(rr1.Body).Decode(&firstResp)
+
+	// Extract hash from the first response's meta filename
+	expectedHash := strings.TrimPrefix(firstResp.MetaFilename, "covmeta.")
+
+	// Second request with ?nometa=1
+	req2, _ := http.NewRequest("GET", "/coverage?nometa=1", nil)
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusOK {
+		t.Errorf("nometa request returned %d, want 200", rr2.Code)
+	}
+
+	var noMetaResp CoverageResponse
+	if err := json.NewDecoder(rr2.Body).Decode(&noMetaResp); err != nil {
+		t.Fatalf("Failed to decode nometa response: %v", err)
+	}
+
+	if noMetaResp.MetaFilename != "" {
+		t.Errorf("MetaFilename should be empty with nometa=1, got %q", noMetaResp.MetaFilename)
+	}
+
+	if noMetaResp.MetaData != "" {
+		t.Errorf("MetaData should be empty with nometa=1, got %d chars", len(noMetaResp.MetaData))
+	}
+
+	if noMetaResp.CountersData == "" {
+		t.Error("CountersData should still be populated with nometa=1")
+	}
+
+	if noMetaResp.CountersFilename == "" {
+		t.Error("CountersFilename should still be populated with nometa=1")
+	}
+
+	// The counter filename should contain the same hash from the cached first request
+	if !strings.Contains(noMetaResp.CountersFilename, expectedHash) {
+		t.Errorf("CountersFilename should contain cached hash %q, got %q", expectedHash, noMetaResp.CountersFilename)
+	}
+}
+
 func TestCoverageHandler_ResponseStructure(t *testing.T) {
 	if !isCoverageEnabled() {
 		t.Skip("Skipping test - coverage not enabled (run with: go test -cover)")
@@ -161,17 +196,14 @@ func TestCoverageHandler_ResponseStructure(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	// Parse response
 	var response CoverageResponse
 	json.NewDecoder(rr.Body).Decode(&response)
 
-	// Test that timestamps are reasonable (within last second)
-	now := int64(1000000000000000000)  // Very large timestamp in nanoseconds
-	if response.Timestamp > now*1000 { // Allow for future dates but not too far
+	now := int64(1000000000000000000)
+	if response.Timestamp > now*1000 {
 		t.Error("Timestamp seems unreasonable")
 	}
 
-	// Verify counter filename contains PID and timestamp
 	if !strings.Contains(response.CountersFilename, ".") {
 		t.Error("CountersFilename should contain delimiters")
 	}
@@ -183,7 +215,6 @@ func TestCoverageHandler_ResponseStructure(t *testing.T) {
 }
 
 func TestCoverageResponse_JSONMarshaling(t *testing.T) {
-	// Create a sample response
 	original := CoverageResponse{
 		MetaFilename:     "covmeta.test123",
 		MetaData:         base64.StdEncoding.EncodeToString([]byte("meta content")),
@@ -192,19 +223,16 @@ func TestCoverageResponse_JSONMarshaling(t *testing.T) {
 		Timestamp:        1234567890,
 	}
 
-	// Marshal to JSON
 	data, err := json.Marshal(original)
 	if err != nil {
 		t.Fatalf("Failed to marshal: %v", err)
 	}
 
-	// Unmarshal back
 	var decoded CoverageResponse
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("Failed to unmarshal: %v", err)
 	}
 
-	// Verify all fields match
 	if decoded.MetaFilename != original.MetaFilename {
 		t.Errorf("MetaFilename mismatch: %s != %s", decoded.MetaFilename, original.MetaFilename)
 	}
@@ -225,7 +253,6 @@ func TestCoverageResponse_JSONMarshaling(t *testing.T) {
 		t.Errorf("Timestamp mismatch: %d != %d", decoded.Timestamp, original.Timestamp)
 	}
 
-	// Verify JSON contains expected fields
 	jsonStr := string(data)
 	expectedFields := []string{
 		"meta_filename",
@@ -256,7 +283,6 @@ func TestCoverageResponse_Base64Encoding(t *testing.T) {
 	var response CoverageResponse
 	json.NewDecoder(rr.Body).Decode(&response)
 
-	// Test that base64 decoding works
 	tests := []struct {
 		name    string
 		data    string
@@ -286,7 +312,6 @@ func TestCoverageHandler_MultipleRequests(t *testing.T) {
 		t.Skip("Skipping test - coverage not enabled (run with: go test -cover)")
 	}
 
-	// Test that multiple requests work correctly
 	handler := http.HandlerFunc(CoverageHandler)
 
 	for i := 0; i < 5; i++ {
@@ -305,7 +330,6 @@ func TestCoverageHandler_MultipleRequests(t *testing.T) {
 			t.Errorf("Request %d: Failed to decode response: %v", i, err)
 		}
 
-		// Verify each response is valid
 		if response.MetaFilename == "" {
 			t.Errorf("Request %d: MetaFilename is empty", i)
 		}
@@ -317,7 +341,6 @@ func TestCoverageHandler_FilenameUniqueness(t *testing.T) {
 		t.Skip("Skipping test - coverage not enabled (run with: go test -cover)")
 	}
 
-	// Test that counter filenames are unique across requests
 	handler := http.HandlerFunc(CoverageHandler)
 	filenames := make(map[string]bool)
 
@@ -334,9 +357,6 @@ func TestCoverageHandler_FilenameUniqueness(t *testing.T) {
 			t.Errorf("Duplicate counter filename detected: %s", response.CountersFilename)
 		}
 		filenames[response.CountersFilename] = true
-
-		// Meta filename should be the same (same hash)
-		// Counter filename should be different (includes timestamp)
 	}
 
 	if len(filenames) < 2 {
@@ -345,7 +365,6 @@ func TestCoverageHandler_FilenameUniqueness(t *testing.T) {
 }
 
 func TestHealthHandler(t *testing.T) {
-	// Create a health check handler (simulating what's in startCoverageServer)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("coverage server healthy"))
@@ -359,17 +378,59 @@ func TestHealthHandler(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	// Check status code
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("Health handler returned wrong status code: got %v want %v",
 			status, http.StatusOK)
 	}
 
-	// Check response body
 	expected := "coverage server healthy"
 	if rr.Body.String() != expected {
 		t.Errorf("Health handler returned unexpected body: got %v want %v",
 			rr.Body.String(), expected)
+	}
+}
+
+func TestIdentityMiddleware(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := identityMiddleware(inner)
+
+	req, _ := http.NewRequest("HEAD", "/health", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Header().Get("X-Art-Coverage-Server") != "1" {
+		t.Error("X-Art-Coverage-Server header should be '1'")
+	}
+
+	if rr.Header().Get("X-Art-Coverage-Pid") == "" {
+		t.Error("X-Art-Coverage-Pid header should not be empty")
+	}
+
+	if rr.Header().Get("X-Art-Coverage-Binary") == "" {
+		t.Error("X-Art-Coverage-Binary header should not be empty")
+	}
+}
+
+func TestIdentityMiddleware_GET(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	})
+
+	handler := identityMiddleware(inner)
+
+	req, _ := http.NewRequest("GET", "/coverage", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Header().Get("X-Art-Coverage-Server") != "1" {
+		t.Error("X-Art-Coverage-Server header should be present on GET")
+	}
+
+	if rr.Body.String() != "ok" {
+		t.Error("Inner handler body should be preserved")
 	}
 }
 
@@ -378,7 +439,6 @@ func TestCoverageHandler_ConcurrentRequests(t *testing.T) {
 		t.Skip("Skipping test - coverage not enabled (run with: go test -cover)")
 	}
 
-	// Test concurrent access to the coverage handler
 	handler := http.HandlerFunc(CoverageHandler)
 	done := make(chan bool)
 	numRequests := 10
@@ -403,7 +463,6 @@ func TestCoverageHandler_ConcurrentRequests(t *testing.T) {
 		}(i)
 	}
 
-	// Wait for all goroutines to complete
 	for i := 0; i < numRequests; i++ {
 		<-done
 	}
@@ -414,7 +473,6 @@ func TestCoverageResponse_EmptyFieldValidation(t *testing.T) {
 		t.Skip("Skipping test - coverage not enabled (run with: go test -cover)")
 	}
 
-	// Test that all response fields are populated
 	req, _ := http.NewRequest("GET", "/coverage", nil)
 	rr := httptest.NewRecorder()
 	handler := http.HandlerFunc(CoverageHandler)
@@ -424,7 +482,6 @@ func TestCoverageResponse_EmptyFieldValidation(t *testing.T) {
 	var response CoverageResponse
 	json.NewDecoder(rr.Body).Decode(&response)
 
-	// Check for empty fields
 	emptyFields := []string{}
 
 	if response.MetaFilename == "" {
@@ -445,6 +502,18 @@ func TestCoverageResponse_EmptyFieldValidation(t *testing.T) {
 
 	if len(emptyFields) > 0 {
 		t.Errorf("Response has empty fields: %v", emptyFields)
+	}
+}
+
+func TestDefaultPort(t *testing.T) {
+	if DefaultPort != 53700 {
+		t.Errorf("DefaultPort should be 53700, got %d", DefaultPort)
+	}
+}
+
+func TestMaxRetries(t *testing.T) {
+	if MaxRetries != 50 {
+		t.Errorf("MaxRetries should be 50, got %d", MaxRetries)
 	}
 }
 
