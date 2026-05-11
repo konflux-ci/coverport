@@ -218,7 +218,12 @@ Show user the created issue keys and URLs when done. The output clearly distingu
 
 ## Task Structure
 
-Each repo that passes filtering gets **one parent Task** with **one or more Subtasks** (one per test type). A repo can have both `onboard-unit` and `onboard-e2e` subtasks if it has both unit tests and e2e tests.
+Task structure depends on how many test types a repo has:
+
+- **Single test type** (e.g., only unit tests OR only e2e) → **one flat Task** with steps, verification, and all details inline. No subtasks.
+- **Multiple test types** (e.g., unit tests AND e2e tests) → **one parent Task** with **Subtasks** (one per test type).
+
+This avoids unnecessary parent→subtask nesting for simple cases while preserving the hierarchy when a repo genuinely needs multiple work items.
 
 Additionally, **two DevLake follow-up Tasks** are created directly under the epic (not per repo):
 1. "Set up DevLake project for code coverage tracking" — create DevLake project with GitHub + Codecov connections

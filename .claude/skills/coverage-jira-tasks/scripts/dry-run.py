@@ -164,11 +164,17 @@ def generate_steps(row, task_type):
     org = row.get("_org", "")
     codecov_url = f"https://app.codecov.io/gh/{org}/{repo}"
 
+    is_gha = "GitHub Actions" in ci
+
     if task_type == "fix-codecov":
+        if is_gha:
+            auth_step = "4. Switch to OIDC authentication (recommended for GitHub Actions) — set `use_oidc: true` in codecov-action and remove `CODECOV_TOKEN` secret"
+        else:
+            auth_step = "4. Verify `CODECOV_TOKEN` secret is set in CI"
         return f"""1. Review current Codecov configuration in CI workflows
 2. Ensure coverage upload uses `flags: unit-tests`
 3. Ensure workflow runs on push to `main` (not just PRs)
-4. Verify `CODECOV_TOKEN` secret is set (or OIDC for public repos)
+{auth_step}
 5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab → click "Enable flag analytics"
 """
 
@@ -180,11 +186,14 @@ def generate_steps(row, task_type):
 """
 
     if task_type == "onboard-e2e":
+        auth_note = ""
+        if is_gha:
+            auth_note = "\n6. Use OIDC authentication (recommended for GitHub Actions) — set `use_oidc: true` in codecov-action instead of `CODECOV_TOKEN`"
         return f"""1. Follow the [E2E Code Coverage Guide](https://konflux.pages.redhat.com/docs/users/testing/e2e-code-coverage.html)
 2. Add Coverport instrumentation to the application
 3. Modify Dockerfile for instrumented builds
 4. Update CI pipeline for coverage collection
-5. Upload to Codecov with `e2e-tests` flag
+5. Upload to Codecov with `e2e-tests` flag{auth_note}
 """
 
     if task_type == "investigate":
@@ -203,10 +212,11 @@ def generate_steps(row, task_type):
             lang_hint = "\n   - Python: create `tests/` directory, use `pytest`"
         elif lang in ("TypeScript", "JavaScript"):
             lang_hint = "\n   - JS/TS: add `jest` or `vitest`, create `*.test.ts` files"
+        auth_step = "4. Add Codecov upload step with `flags: unit-tests` using OIDC (`use_oidc: true`)" if is_gha else "4. Add Codecov upload step with `flags: unit-tests` using `CODECOV_TOKEN`"
         return f"""1. Identify key packages/modules that should have test coverage
 2. Add unit test framework and initial test files:{lang_hint}
 3. Add coverage generation to CI pipeline
-4. Add Codecov upload step with `flags: unit-tests`
+{auth_step}
 5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
 
@@ -214,75 +224,76 @@ def generate_steps(row, task_type):
         return f"""1. Set up CI pipeline (GitHub Actions recommended):
    - Create `.github/workflows/ci.yml`
    - Add test step with coverage generation
-2. Add `CODECOV_TOKEN` secret to repo
-3. Add Codecov upload step with `flags: unit-tests`
-4. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
+2. Add Codecov upload step with `flags: unit-tests` using OIDC (`use_oidc: true` — recommended for GitHub Actions, no token secret needed)
+3. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
 
     # onboard-unit — language-specific
-    if "GitHub Actions" in ci:
+    if is_gha:
         if lang == "Go":
-            return f"""1. Add `CODECOV_TOKEN` secret to repo (or use OIDC for public repos)
-2. Update test step to generate coverage:
+            return f"""1. Update test step to generate coverage:
    ```
    go test ./... -coverprofile=coverage.out -covermode=atomic
    ```
-3. Add Codecov upload step:
+2. Add Codecov upload step using OIDC (recommended for GitHub Actions — no token secret needed):
    ```yaml
    - uses: codecov/codecov-action@v5
      with:
-       token: ${{{{ secrets.CODECOV_TOKEN }}}}
+       use_oidc: true
        flags: unit-tests
        files: ./coverage.out
        fail_ci_if_error: false
    ```
-4. Ensure workflow runs on push to `main`
-5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
+3. Ensure workflow runs on push to `main`
+4. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
         elif lang == "Python":
-            return f"""1. Add `CODECOV_TOKEN` secret to repo
-2. Update test step to generate coverage:
+            return f"""1. Update test step to generate coverage:
    ```
    pip install coverage
    coverage run -m pytest
    coverage xml -o coverage.xml
    ```
-3. Add Codecov upload step:
+2. Add Codecov upload step using OIDC (recommended for GitHub Actions — no token secret needed):
    ```yaml
    - uses: codecov/codecov-action@v5
      with:
-       token: ${{{{ secrets.CODECOV_TOKEN }}}}
+       use_oidc: true
        flags: unit-tests
        files: ./coverage.xml
        fail_ci_if_error: false
    ```
-4. Ensure workflow runs on push to `main`
-5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
+3. Ensure workflow runs on push to `main`
+4. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
         elif lang in ("TypeScript", "JavaScript"):
-            return f"""1. Add `CODECOV_TOKEN` secret to repo
-2. Update test step to generate coverage:
+            return f"""1. Update test step to generate coverage:
    ```
    npx jest --coverage   # or: npx vitest --coverage
    ```
-3. Add Codecov upload step:
+2. Add Codecov upload step using OIDC (recommended for GitHub Actions — no token secret needed):
    ```yaml
    - uses: codecov/codecov-action@v5
      with:
-       token: ${{{{ secrets.CODECOV_TOKEN }}}}
+       use_oidc: true
        flags: unit-tests
        files: ./coverage/lcov.info
        fail_ci_if_error: false
    ```
-4. Ensure workflow runs on push to `main`
-5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
+3. Ensure workflow runs on push to `main`
+4. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
         else:
-            return f"""1. Add `CODECOV_TOKEN` secret to repo
-2. Add coverage generation to test step (language-specific)
-3. Add Codecov upload step with `flags: unit-tests`
-4. Ensure workflow runs on push to `main`
-5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
+            return f"""1. Add coverage generation to test step (language-specific)
+2. Add Codecov upload step using OIDC (recommended for GitHub Actions — no token secret needed):
+   ```yaml
+   - uses: codecov/codecov-action@v5
+     with:
+       use_oidc: true
+       flags: unit-tests
+   ```
+3. Ensure workflow runs on push to `main`
+4. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
     elif "GitLab CI" in ci:
         return f"""1. Add `CODECOV_TOKEN` CI variable in GitLab
@@ -305,8 +316,8 @@ def generate_steps(row, task_type):
 """
 
 
-def generate_parent_task(row, subtasks, org):
-    """Generate parent task content for a repo."""
+def _common_task_fields(row, org):
+    """Extract common fields used by both parent and flat tasks."""
     repo = row.get("Repository", "").strip()
     lang = row.get("Language", "") or "unknown"
     has_tests = row.get("Has Unit Tests", "")
@@ -321,11 +332,6 @@ def generate_parent_task(row, subtasks, org):
         if c:
             contributors.append(c)
 
-    # Parent priority = highest priority among subtasks
-    parent_priority = subtasks[0][1]
-    for _, p in subtasks:
-        parent_priority = max_priority(parent_priority, p)
-
     codecov_status = has_codecov
     if has_codecov == "yes":
         codecov_status = f"yes ({row.get('Codecov Details', '')})"
@@ -336,13 +342,100 @@ def generate_parent_task(row, subtasks, org):
     if contributors:
         contributors_line = f"\n**Key contacts:** {', '.join(contributors)}\n"
 
+    return {
+        "repo": repo, "lang": lang, "has_tests": has_tests, "has_e2e": has_e2e,
+        "has_codecov": has_codecov, "ci": ci, "codecov_status": codecov_status,
+        "desc_line": desc_line, "stars_line": stars_line, "contributors_line": contributors_line,
+        "test_details": row.get("Test Details", "").strip(),
+    }
+
+
+def generate_flat_task(row, task_type, priority, org):
+    """Generate a flat task (no subtasks) for repos with a single test type."""
+    f = _common_task_fields(row, org)
+    summary_label = TASK_TYPE_SUMMARIES.get(task_type, task_type)
+    type_label = TASK_TYPE_JIRA_LABELS.get(task_type, task_type)
+    labels = f"codecov-onboarding, {type_label}"
+
+    row["_org"] = org
+    steps = generate_steps(row, task_type)
+    codecov_url = f"https://app.codecov.io/gh/{org}/{f['repo']}"
+    is_gha = "GitHub Actions" in f["ci"]
+
+    test_details_line = ""
+    if f["test_details"]:
+        test_details_line = f"| Test details | {f['test_details']} |\n"
+
+    if is_gha:
+        manual_steps = """### Manual Steps Required
+
+- Enable flag analytics in Codecov UI
+- No token secret needed — OIDC handles authentication"""
+    else:
+        manual_steps = """### Manual Steps Required
+
+- Get upload token from Codecov settings
+- Add `CODECOV_TOKEN` as CI secret
+- Enable flag analytics in Codecov UI"""
+
+    content = f"""---
+summary: "{f['repo']}: {summary_label}"
+priority: "{priority}"
+type: "Task"
+labels: "{labels}"
+---
+
+### Objective
+
+{summary_label} for [{f['repo']}](https://github.com/{org}/{f['repo']}){f['stars_line']}.
+{f['desc_line']}
+### Current State
+
+| Item | Status |
+|------|--------|
+| Unit tests | {f['has_tests']} |
+| E2E tests | {f['has_e2e']} |
+| Codecov | {f['codecov_status']} |
+| CI System | {f['ci']} |
+| Language | {f['lang']} |
+{test_details_line}{f['contributors_line']}
+### Steps
+
+{steps}
+
+{manual_steps}
+
+### Verification
+
+- [ ] CI workflow uploads coverage successfully
+- [ ] Codecov dashboard shows coverage data
+- [ ] Coverage flag visible in Flags tab
+- [ ] Coverage percentage is non-zero
+
+### AI-Assisted Implementation
+
+Most code changes can be automated using the **codecov-onboarding** AI skill:
+
+**Quick Start:** https://github.com/konflux-ci/coverport/blob/main/.claude/skills/codecov-onboarding/README.md
+"""
+    return content
+
+
+def generate_parent_task(row, subtasks, org):
+    """Generate parent task content for a repo with multiple subtask types."""
+    f = _common_task_fields(row, org)
+
+    parent_priority = subtasks[0][1]
+    for _, p in subtasks:
+        parent_priority = max_priority(parent_priority, p)
+
     subtask_list = "\n".join(
         f"- {TASK_TYPE_SUMMARIES.get(tt, tt)} (Priority: {p})"
         for tt, p in subtasks
     )
 
     content = f"""---
-summary: "{repo}: Code coverage onboarding"
+summary: "{f['repo']}: Code coverage onboarding"
 priority: "{parent_priority}"
 type: "Task"
 labels: "codecov-onboarding"
@@ -350,18 +443,18 @@ labels: "codecov-onboarding"
 
 ### Objective
 
-Onboard [{repo}](https://github.com/{org}/{repo}){stars_line} to code coverage tracking.
-{desc_line}
+Onboard [{f['repo']}](https://github.com/{org}/{f['repo']}){f['stars_line']} to code coverage tracking.
+{f['desc_line']}
 ### Current State
 
 | Item | Status |
 |------|--------|
-| Unit tests | {has_tests} |
-| E2E tests | {has_e2e} |
-| Codecov | {codecov_status} |
-| CI System | {ci} |
-| Language | {lang} |
-{contributors_line}
+| Unit tests | {f['has_tests']} |
+| E2E tests | {f['has_e2e']} |
+| Codecov | {f['codecov_status']} |
+| CI System | {f['ci']} |
+| Language | {f['lang']} |
+{f['contributors_line']}
 ### Subtasks
 
 {subtask_list}
@@ -384,6 +477,7 @@ def generate_subtask_file(row, task_type, priority, org):
     has_codecov = row.get("Has Codecov", "")
     ci = row.get("CI System", "") or "unknown"
     test_details = row.get("Test Details", "").strip()
+    is_gha = "GitHub Actions" in ci
 
     summary_label = TASK_TYPE_SUMMARIES.get(task_type, task_type)
     type_label = TASK_TYPE_JIRA_LABELS.get(task_type, task_type)
@@ -396,6 +490,18 @@ def generate_subtask_file(row, task_type, priority, org):
     test_details_line = ""
     if test_details:
         test_details_line = f"| Test details | {test_details} |\n"
+
+    if is_gha:
+        manual_steps = """### Manual Steps Required
+
+- Enable flag analytics in Codecov UI
+- No token secret needed — OIDC handles authentication"""
+    else:
+        manual_steps = """### Manual Steps Required
+
+- Get upload token from Codecov settings
+- Add `CODECOV_TOKEN` as CI secret
+- Enable flag analytics in Codecov UI"""
 
     content = f"""---
 summary: "{repo}: {summary_label}"
@@ -422,11 +528,7 @@ labels: "{labels}"
 
 {steps}
 
-### Manual Steps Required
-
-- Get upload token from Codecov settings
-- Add `CODECOV_TOKEN` as CI secret
-- Enable flag analytics in Codecov UI
+{manual_steps}
 
 ### Verification
 
@@ -668,25 +770,37 @@ def main():
         repo_dir = os.path.join(args.output_dir, repo_slug)
         os.makedirs(repo_dir, exist_ok=True)
 
-        # Generate parent task
         row["_org"] = args.org
-        parent_priority, parent_content = generate_parent_task(row, filtered_subtasks, args.org)
-        parent_path = os.path.join(repo_dir, "task.md")
-        with open(parent_path, "w") as f:
-            f.write(parent_content)
 
-        # Generate subtask files
-        for task_type, priority in filtered_subtasks:
-            subtask_content = generate_subtask_file(row, task_type, priority, args.org)
-            subtask_path = os.path.join(repo_dir, f"subtask-{task_type}.md")
-            with open(subtask_path, "w") as f:
-                f.write(subtask_content)
+        if len(filtered_subtasks) == 1:
+            # Single test type → flat task (no subtasks)
+            task_type, priority = filtered_subtasks[0]
+            flat_content = generate_flat_task(row, task_type, priority, args.org)
+            task_path = os.path.join(repo_dir, "task.md")
+            with open(task_path, "w") as f:
+                f.write(flat_content)
 
-            stats["subtasks"] += 1
+            stats["parent_tasks"] += 1
             stats["tasks_by_type"][task_type] = stats["tasks_by_type"].get(task_type, 0) + 1
+            all_repos.append((repo, priority, filtered_subtasks))
+        else:
+            # Multiple test types → parent task + subtasks
+            parent_priority, parent_content = generate_parent_task(row, filtered_subtasks, args.org)
+            parent_path = os.path.join(repo_dir, "task.md")
+            with open(parent_path, "w") as f:
+                f.write(parent_content)
 
-        stats["parent_tasks"] += 1
-        all_repos.append((repo, parent_priority, filtered_subtasks))
+            for task_type, priority in filtered_subtasks:
+                subtask_content = generate_subtask_file(row, task_type, priority, args.org)
+                subtask_path = os.path.join(repo_dir, f"subtask-{task_type}.md")
+                with open(subtask_path, "w") as f:
+                    f.write(subtask_content)
+
+                stats["subtasks"] += 1
+                stats["tasks_by_type"][task_type] = stats["tasks_by_type"].get(task_type, 0) + 1
+
+            stats["parent_tasks"] += 1
+            all_repos.append((repo, parent_priority, filtered_subtasks))
 
         # Bucket for wave summary
         if parent_priority == "Critical":
@@ -747,8 +861,12 @@ def main():
     print(f"\n{'='*60}")
     print("Output structure:")
     for repo, priority, subtasks in all_repos:
-        subtask_types = ", ".join(tt for tt, _ in subtasks)
-        print(f"  {slugify(repo)}/ [{priority}] → subtasks: {subtask_types}")
+        if len(subtasks) == 1:
+            tt = subtasks[0][0]
+            print(f"  {slugify(repo)}/ [{priority}] → flat task: {tt}")
+        else:
+            subtask_types = ", ".join(tt for tt, _ in subtasks)
+            print(f"  {slugify(repo)}/ [{priority}] → subtasks: {subtask_types}")
     if devlake_count:
         print(f"  _devlake-setup.md")
         print(f"  _devlake-dashboard.md")
