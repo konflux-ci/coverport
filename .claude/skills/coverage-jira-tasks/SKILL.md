@@ -5,7 +5,7 @@ description: Generate and create Jira tasks for code coverage onboarding from an
 
 # Coverage Jira Tasks Skill
 
-Read audit CSV → classify repos → generate Jira tasks → push to Jira epic.
+Read audit CSV → classify repos → generate one task per repo with subtasks per test type + DevLake follow-up tasks → push to Jira epic.
 
 ## When to Use
 
@@ -39,11 +39,18 @@ Rules:
 
 ### Phase 1: Dry Run
 
-YOU run `scripts/dry-run.py` — reads CSV, classifies repos, writes one `.md` file per task to an output directory. Show summary to user for review.
+YOU run `scripts/dry-run.py` — reads CSV, classifies repos, generates an output directory with:
+- One subdirectory per repo containing `task.md` (parent) + `subtask-<type>.md` files
+- Two `_devlake-*.md` files at the root level (DevLake follow-up tasks)
+
+Show summary to user for review.
 
 ### Phase 2: Create Tasks
 
-After user confirms, YOU run `scripts/create-tasks.py` — reads generated task files, creates Jira issues, links to epic.
+After user confirms, YOU run `scripts/create-tasks.py` — reads the output directory, creates:
+1. One parent **Task** per repo under the epic
+2. **Subtasks** under each parent task (one per test type)
+3. Two **DevLake follow-up Tasks** directly under the epic
 
 ## Prerequisites
 
@@ -169,8 +176,8 @@ Valid `--types` values: `fix-codecov`, `verify-codecov`, `onboard-unit`, `invest
 Both `--types` and `--repos` can be combined.
 
 Then show the user:
-- Total tasks that would be created
-- Breakdown by task type
+- Total parent tasks, subtasks, and DevLake tasks that would be created
+- Breakdown by subtask type
 - Execution wave summary (Critical → High → Medium → Low)
 - Any repos that seem misclassified (flag high-star repos with low priority, etc.)
 
@@ -205,11 +212,21 @@ python <skill-dir>/scripts/create-tasks.py \
   --jira-url https://your-instance.atlassian.net
 ```
 
-Show user the created issue keys and URLs when done.
+The script auto-detects the correct subtask issue type (`Subtask` vs `Sub-task`) by querying the project's issue types before creating. Override with `--subtask-type "Sub-task"` if auto-detection fails.
 
-## Task Type Classification
+Show user the created issue keys and URLs when done. The output clearly distinguishes parent tasks, subtasks, and DevLake tasks.
 
-The script uses a decision tree to classify repos. The order matters — repos are filtered first, then classified by their coverage readiness.
+## Task Structure
+
+Each repo that passes filtering gets **one parent Task** with **one or more Subtasks** (one per test type). A repo can have both `onboard-unit` and `onboard-e2e` subtasks if it has both unit tests and e2e tests.
+
+Additionally, **two DevLake follow-up Tasks** are created directly under the epic (not per repo):
+1. "Set up DevLake project for code coverage tracking" — create DevLake project with GitHub + Codecov connections
+2. "Add team to metrics dashboard (metrics.dprod.io)" — submit MR to add team to the unified dashboard
+
+## Subtask Type Classification
+
+The script uses a decision tree to classify repos into subtask types. The order matters — repos are filtered first, then classified by their coverage readiness.
 
 ### Filtering (repos skipped entirely)
 
@@ -220,9 +237,9 @@ The script uses a decision tree to classify repos. The order matters — repos a
 | Archived = `yes` | Archived — no longer maintained |
 | No language AND no CI detected | Config/docs repo — no testable code |
 
-### Classification (repos that get tasks)
+### Classification (repos that get subtasks)
 
-| Condition | Task Type | Base Priority | Label |
+| Condition | Subtask Type | Base Priority | Label |
 |-----------|-----------|---------------|-------|
 | Has Codecov = `yes`, flags NOT configured | Fix Codecov config | Critical | `fix-codecov` |
 | Has Codecov = `yes`, flags configured | Verify Codecov setup | Major | `verify-codecov` |
@@ -249,17 +266,37 @@ All tasks also get the `codecov-onboarding` label.
 
 The script checks `Test Details` for known false positives like `echo "Error: no test specified"`. Repos where tests are detected but actually broken get `needs-tests` instead of `onboard-unit`.
 
-## Task Description Template
+## Output Structure
 
-Each generated task file includes:
-- YAML frontmatter: summary, priority, type, labels
+```
+<output-dir>/
+  <repo-slug>/
+    task.md              (parent task — overview, subtask list, AI skill reference)
+    subtask-<type>.md    (one per test type — detailed steps, verification)
+  _devlake-setup.md      (DevLake project setup — directly under epic)
+  _devlake-dashboard.md  (Metrics dashboard onboarding — directly under epic)
+```
+
+### Parent task file (`task.md`)
+- YAML frontmatter: summary, priority, type=Task, labels
 - Objective with repo link and star count
-- Repo description (when available)
-- Current State table (tests, codecov, CI, language, test details)
+- Current State table (tests, codecov, CI, language)
 - Key contacts (top contributors from CSV)
-- Language and CI-specific implementation steps
+- Subtask list summary
 - AI-assisted implementation reference
+
+### Subtask file (`subtask-<type>.md`)
+- YAML frontmatter: summary, priority, type=Subtask, labels (type-specific)
+- Objective
+- Current State table
+- Language and CI-specific implementation steps
+- Manual steps required
 - Verification checklist
+
+### DevLake files (`_devlake-*.md`)
+- YAML frontmatter: summary, priority, type=Task, labels
+- Detailed step-by-step instructions (from COVERPORT-111 / COVERPORT-112 templates)
+- Prerequisites, troubleshooting, verification checklist
 
 ## Script Reference
 
@@ -271,9 +308,11 @@ Usage: python scripts/dry-run.py \
   --org <github-org-name> \
   --output-dir <./jira-tasks-draft/> \
   [--types <comma-separated-task-types>] \
-  [--repos <comma-separated-repo-names>]
+  [--repos <comma-separated-repo-names>] \
+  [--no-devlake]
 
-Output: one .md file per task in output dir + summary to stdout
+Output: directory structure with task.md + subtask-*.md per repo,
+        _devlake-*.md at root, + summary to stdout
 ```
 
 ### scripts/create-tasks.py
@@ -283,11 +322,12 @@ Usage: python scripts/create-tasks.py \
   --input-dir <./jira-tasks-draft/> \
   --epic <EPIC-KEY> \
   --project <PROJECT-KEY> \
-  [--jira-url <https://your-instance.atlassian.net>]
+  [--jira-url <https://your-instance.atlassian.net>] \
+  [--subtask-type <Subtask>]
 
 Env vars required: JIRA_USERNAME, JIRA_API_TOKEN
 Optional env var: JIRA_URL (alternative to --jira-url flag)
-Output: created issue keys + URLs to stdout
+Output: created issue keys + URLs to stdout (parent tasks, subtasks, DevLake tasks)
 ```
 
 ## Important Notes
@@ -296,9 +336,21 @@ Output: created issue keys + URLs to stdout
 
 Task files are written in markdown for human readability. The `create-tasks.py` script automatically converts markdown to Jira wiki markup before sending to the API. The task `.md` files in the output directory remain in markdown.
 
+### Subtask Issue Type
+
+Different Jira projects use different names for the subtask issue type: `Subtask`, `Sub-task`, or custom names. The script auto-detects the correct name by querying `GET /rest/api/2/project/<KEY>/statuses` before creating issues. Override with `--subtask-type` if needed.
+
+### Idempotent Retries
+
+The script saves a `.created-issues.json` log in the input directory, tracking which tasks have been created (keyed by `task:<repo>`, `subtask:<repo>:<file>`, `devlake:<file>`). On re-run, already-created issues are skipped — only failed items are retried. This prevents duplicates when a run partially fails (e.g., subtask type wrong but parent tasks succeed). Delete `.created-issues.json` to force a full re-creation.
+
 ### Priority Compatibility
 
 The script uses Jira priorities: Critical, Major, Normal, Minor. "Low" is intentionally avoided because some Jira project schemes don't include it. If a project uses a different priority scheme, edit the task files' frontmatter before running `create-tasks.py`.
+
+### DevLake Tasks
+
+The two DevLake tasks are generated from templates based on [COVERPORT-111](https://redhat.atlassian.net/browse/COVERPORT-111) and [COVERPORT-112](https://redhat.atlassian.net/browse/COVERPORT-112). They are follow-up tasks meant to be done after Codecov onboarding is complete. Use `--no-devlake` flag in dry-run if these tasks already exist or are not needed.
 
 ### SSL Certificates
 

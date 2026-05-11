@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Dry-run: read audit CSV, classify repos, generate Jira task files."""
+"""Dry-run: read audit CSV, classify repos, generate Jira task files.
+
+Output structure:
+  <output-dir>/
+    <repo-name>/
+      task.md              (parent task for the repo)
+      subtask-<type>.md    (one per test type)
+    _devlake-setup.md      (DevLake project setup task)
+    _devlake-dashboard.md  (Metrics dashboard task)
+"""
 
 import argparse
 import csv
@@ -67,7 +76,6 @@ def classify_repo(row):
     if archived == "yes":
         return None, "skip-archived"
 
-    # Skip repos with no language AND no CI — config/docs repos
     if not has_language(row) and not has_ci(row):
         return None, "skip-no-code"
 
@@ -97,7 +105,7 @@ def classify_repo(row):
             p = priority_from_stars(stars, "Normal")
             tasks.append(("onboard-unit", p))
 
-    # Unknown tests — differentiate between "has CI" and "has nothing"
+    # Unknown tests
     elif has_tests == "unknown":
         if has_ci(row) and has_language(row):
             p = priority_from_stars(stars, "Minor")
@@ -105,9 +113,8 @@ def classify_repo(row):
         elif has_language(row):
             p = priority_from_stars(stars, "Minor")
             tasks.append(("investigate", p))
-        # else: no language, has CI but no language → skip (caught above mostly)
 
-    # E2E tests present
+    # E2E tests present (can be in addition to unit test task)
     if has_e2e == "yes":
         lang = row.get("Language", "").strip()
         if lang in ("Go", "Python", "TypeScript", "JavaScript"):
@@ -298,7 +305,8 @@ def generate_steps(row, task_type):
 """
 
 
-def generate_task_file(row, task_type, priority, org):
+def generate_parent_task(row, subtasks, org):
+    """Generate parent task content for a repo."""
     repo = row.get("Repository", "").strip()
     lang = row.get("Language", "") or "unknown"
     has_tests = row.get("Has Unit Tests", "")
@@ -312,15 +320,11 @@ def generate_task_file(row, task_type, priority, org):
         c = row.get(f"Contributor {i}", "").strip()
         if c:
             contributors.append(c)
-    test_details = row.get("Test Details", "").strip()
 
-    summary_label = TASK_TYPE_SUMMARIES.get(task_type, task_type)
-    summary = f"{repo}: {summary_label}"
-    type_label = TASK_TYPE_JIRA_LABELS.get(task_type, task_type)
-    labels = f"codecov-onboarding, {type_label}"
-
-    row["_org"] = org
-    steps = generate_steps(row, task_type)
+    # Parent priority = highest priority among subtasks
+    parent_priority = subtasks[0][1]
+    for _, p in subtasks:
+        parent_priority = max_priority(parent_priority, p)
 
     codecov_status = has_codecov
     if has_codecov == "yes":
@@ -331,20 +335,22 @@ def generate_task_file(row, task_type, priority, org):
     contributors_line = ""
     if contributors:
         contributors_line = f"\n**Key contacts:** {', '.join(contributors)}\n"
-    test_details_line = ""
-    if test_details:
-        test_details_line = f"| Test details | {test_details} |\n"
+
+    subtask_list = "\n".join(
+        f"- {TASK_TYPE_SUMMARIES.get(tt, tt)} (Priority: {p})"
+        for tt, p in subtasks
+    )
 
     content = f"""---
-summary: "{summary}"
-priority: "{priority}"
+summary: "{repo}: Code coverage onboarding"
+priority: "{parent_priority}"
 type: "Task"
-labels: "{labels}"
+labels: "codecov-onboarding"
 ---
 
 ### Objective
 
-{summary_label} for [{repo}](https://github.com/{org}/{repo}){stars_line}.
+Onboard [{repo}](https://github.com/{org}/{repo}){stars_line} to code coverage tracking.
 {desc_line}
 ### Current State
 
@@ -355,19 +361,69 @@ labels: "{labels}"
 | Codecov | {codecov_status} |
 | CI System | {ci} |
 | Language | {lang} |
-{test_details_line}
 {contributors_line}
-### Steps
+### Subtasks
 
-{steps}
+{subtask_list}
 
 ### AI-Assisted Implementation
 
 Most code changes can be automated using the **codecov-onboarding** AI skill:
 
 **Quick Start:** https://github.com/konflux-ci/coverport/blob/main/.claude/skills/codecov-onboarding/README.md
+"""
+    return parent_priority, content
 
-**Manual steps required:**
+
+def generate_subtask_file(row, task_type, priority, org):
+    """Generate subtask content for a specific test type."""
+    repo = row.get("Repository", "").strip()
+    lang = row.get("Language", "") or "unknown"
+    has_tests = row.get("Has Unit Tests", "")
+    has_e2e = row.get("Has E2E Tests", "")
+    has_codecov = row.get("Has Codecov", "")
+    ci = row.get("CI System", "") or "unknown"
+    test_details = row.get("Test Details", "").strip()
+
+    summary_label = TASK_TYPE_SUMMARIES.get(task_type, task_type)
+    type_label = TASK_TYPE_JIRA_LABELS.get(task_type, task_type)
+    labels = f"codecov-onboarding, {type_label}"
+
+    row["_org"] = org
+    steps = generate_steps(row, task_type)
+
+    codecov_url = f"https://app.codecov.io/gh/{org}/{repo}"
+    test_details_line = ""
+    if test_details:
+        test_details_line = f"| Test details | {test_details} |\n"
+
+    content = f"""---
+summary: "{repo}: {summary_label}"
+priority: "{priority}"
+type: "Subtask"
+labels: "{labels}"
+---
+
+### Objective
+
+{summary_label} for [{repo}](https://github.com/{org}/{repo}).
+
+### Current State
+
+| Item | Status |
+|------|--------|
+| Unit tests | {has_tests} |
+| E2E tests | {has_e2e} |
+| Codecov | {has_codecov} |
+| CI System | {ci} |
+| Language | {lang} |
+{test_details_line}
+### Steps
+
+{steps}
+
+### Manual Steps Required
+
 - Get upload token from Codecov settings
 - Add `CODECOV_TOKEN` as CI secret
 - Enable flag analytics in Codecov UI
@@ -379,7 +435,152 @@ Most code changes can be automated using the **codecov-onboarding** AI skill:
 - [ ] Coverage flag visible in Flags tab
 - [ ] Coverage percentage is non-zero
 """
-    return summary, content
+    return content
+
+
+def generate_devlake_setup_task(org):
+    """Generate DevLake project setup task."""
+    content = """---
+summary: "Set up DevLake project for code coverage tracking"
+priority: "Normal"
+type: "Task"
+labels: "codecov-onboarding, devlake"
+---
+
+### Objective
+
+Create a DevLake project with GitHub and Codecov connections so that code coverage data is collected and available for dashboards and custom queries.
+
+### Prerequisites
+
+- Access to [DevLake UI](https://konflux-devlake-ui-konflux-devlake.apps.rosa.kflux-c-prd-i01.7hyu.p3.openshiftapps.com/)
+- A **GitHub Personal Access Token (PAT)** with appropriate scopes (click "Learn how to create a personal access token" in the DevLake GitHub connection form for required permissions)
+- A **Codecov API Token** — generate from: `https://app.codecov.io/account/github/<your-org>/access`
+- Membership in the target GitHub organization and corresponding Codecov organization access
+- Your repos already upload coverage to [Codecov](https://app.codecov.io)
+
+### DevLake Project Structure
+
+Each team gets **one DevLake project** with **one blueprint**.
+
+**Naming convention:** `<Product> - <Team>` (e.g., `Ansible - UI Team`, `OpenShift - Service Mesh`)
+
+Each repo belongs to one team project (the team that owns/maintains it). Keep team projects focused — only repos the team actively works on.
+
+### Steps
+
+1. **Create a DevLake project**
+   - Go to [DevLake UI](https://konflux-devlake-ui-konflux-devlake.apps.rosa.kflux-c-prd-i01.7hyu.p3.openshiftapps.com/) → Projects → + New Project
+   - Name it following the convention: `<Product> - <Team>`
+
+2. **Configure GitHub connection**
+   - Add a Connection → Add New Connection → select GitHub
+   - Select GitHub Cloud
+   - Input your Personal Access Token
+   - Click Test Connection — if successful, click Save Connection
+   - Click Add Data Scope and select the repositories you want to track
+
+3. **Configure Codecov connection**
+   - Add a Connection → select Codecov
+   - Enter the GitHub Organization name
+   - Input your Codecov API Token
+   - Save the connection and confirm the data scope — select the same repos as the GitHub connection
+
+4. **Run initial data collection**
+   - In the project view, go to the Status tab
+   - Click Collect Data and monitor the pipeline for completion
+   - If the pipeline fails, report it in [#wg-code-coverage](https://redhat.enterprise.slack.com/archives/C09MYT9LQCB)
+
+5. **Verify in DevLake dashboards**
+   - Once the pipeline succeeds, click Dashboards
+   - Log in via your Google account
+   - Navigate to Dashboards → Coverport and select your project/repository to verify data
+
+### Troubleshooting
+
+- **Pipeline fails**: Report in [#wg-code-coverage](https://redhat.enterprise.slack.com/archives/C09MYT9LQCB) with your project name and error
+- **No coverage data**: Verify your repos are uploading to Codecov and the Codecov connection scope matches the GitHub connection scope
+
+### Verification
+
+- [ ] DevLake project created with correct naming convention
+- [ ] Blueprint has GitHub + Codecov connections scoped to team repos
+- [ ] Initial data collection pipeline completed successfully
+- [ ] Coverage data visible in DevLake Coverport dashboard
+"""
+    return content
+
+
+def generate_devlake_dashboard_task(org):
+    """Generate metrics dashboard onboarding task."""
+    content = f"""---
+summary: "Add team to metrics dashboard (metrics.dprod.io)"
+priority: "Normal"
+type: "Task"
+labels: "codecov-onboarding, devlake"
+---
+
+### Objective
+
+Add your team's code coverage widgets to the [metrics dashboard](https://metrics.dprod.io/) by adding an entry to `teams.json`.
+
+### Prerequisites
+
+- DevLake project already set up with GitHub + Codecov connections
+- Data collection pipeline completed — coverage data visible in DevLake dashboards
+- Your DevLake **blueprint ID** (found in the project settings URL)
+
+### Steps
+
+1. **Add your team to `teams.json`**
+
+   Submit an MR to [n8n-pulumi-poc](https://gitlab.cee.redhat.com/devtools/n8n-pulumi-poc). See the full [team onboarding guide](https://gitlab.cee.redhat.com/devtools/n8n-pulumi-poc/-/blob/main/containers/dashboard/docs/team-onboarding-guide.md).
+
+   Add an entry like this (or add the `codecoverage` dashboard to your existing team entry):
+
+   ```json
+   {{{{
+     "id": "<product>-<team>",
+     "name": "<Display Name>",
+     "sources": [
+       {{{{"id": "<repo-name>", "type": "github", "owner": "<org>", "name": "<repo>"}}}}
+     ],
+     "dashboards": [
+       {{{{
+         "id": "codecoverage",
+         "type": "codecoverage",
+         "title": "Code Coverage",
+         "blueprintid": "<your-blueprint-id>",
+         "defaultsource": "<one-repo-name>",
+         "description": "Code coverage metrics powered by Codecov.",
+         "diagrams": [
+           {{{{"position": 0, "type": "json", "endpoint": "https://n8n-poc.dprod.io/webhook/coveragekeymetrics"}}}},
+           {{{{"position": 1, "type": "json", "endpoint": "https://n8n-poc.dprod.io/webhook/coveragetrend"}}}},
+           {{{{"position": 2, "type": "json", "endpoint": "https://n8n-poc.dprod.io/webhook/coveragelinebreakdown"}}}}
+         ],
+         "chaturl": "https://n8n-poc.dprod.io/webhook/aa93f8ee-02d9-48df-8f47-481a4e513a5c/chat"
+       }}}}
+     ]
+   }}}}
+   ```
+
+2. **Verify**
+
+   After the MR is merged and deployed, check your dashboard at:
+   `https://metrics.dprod.io/?team=<your-team-id>&dashboard=codecoverage`
+
+### Troubleshooting
+
+- **Dashboard shows empty**: Check that `blueprintid` in `teams.json` matches your DevLake project's blueprint and that `sources` list matches the repos in your DevLake project
+- **Questions**: Ask in [#wg-code-coverage](https://redhat.enterprise.slack.com/archives/C09MYT9LQCB)
+
+### Verification
+
+- [ ] Team entry added to `teams.json` with correct `blueprintid` and sources
+- [ ] MR merged to [n8n-pulumi-poc](https://gitlab.cee.redhat.com/devtools/n8n-pulumi-poc)
+- [ ] Coverage widgets visible at `https://metrics.dprod.io/?team=<your-team-id>&dashboard=codecoverage`
+"""
+    return content
 
 
 def slugify(text):
@@ -395,6 +596,8 @@ def main():
                         help="Comma-separated task types to include (e.g., 'onboard-unit,fix-codecov'). Default: all")
     parser.add_argument("--repos", default=None,
                         help="Comma-separated repo names to include (e.g., 'quay-operator,mirror-registry'). Default: all")
+    parser.add_argument("--no-devlake", action="store_true",
+                        help="Skip generating DevLake follow-up tasks")
     args = parser.parse_args()
 
     allowed_types = None
@@ -439,9 +642,9 @@ def main():
     elif not has_onboard_col:
         print(f"Read {len(rows)} repos from {args.csv}\n")
 
-    stats = {"total": 0, "tasks": {}}
+    stats = {"parent_tasks": 0, "subtasks": 0, "tasks_by_type": {}}
     skip_stats = {}
-    task_files = []
+    all_repos = []  # (repo_name, parent_priority, subtask_list)
     wave_buckets = {"critical": [], "high": [], "medium": [], "low": []}
 
     for row in rows:
@@ -450,40 +653,80 @@ def main():
             skip_stats[skip_reason] = skip_stats.get(skip_reason, 0) + 1
             continue
 
+        # Filter by allowed types if specified
+        filtered_subtasks = []
         for task_type, priority in result:
             if allowed_types and task_type not in allowed_types:
                 continue
+            filtered_subtasks.append((task_type, priority))
 
-            summary, content = generate_task_file(row, task_type, priority, args.org)
-            repo = row.get("Repository", "").strip()
-            filename = f"{slugify(repo)}-{task_type}.md"
-            filepath = os.path.join(args.output_dir, filename)
+        if not filtered_subtasks:
+            continue
 
-            with open(filepath, "w") as f:
-                f.write(content)
+        repo = row.get("Repository", "").strip()
+        repo_slug = slugify(repo)
+        repo_dir = os.path.join(args.output_dir, repo_slug)
+        os.makedirs(repo_dir, exist_ok=True)
 
-            task_files.append((filename, summary, priority, task_type))
-            stats["total"] += 1
-            stats["tasks"][task_type] = stats["tasks"].get(task_type, 0) + 1
+        # Generate parent task
+        row["_org"] = args.org
+        parent_priority, parent_content = generate_parent_task(row, filtered_subtasks, args.org)
+        parent_path = os.path.join(repo_dir, "task.md")
+        with open(parent_path, "w") as f:
+            f.write(parent_content)
 
-            # Bucket for wave summary
-            if priority == "Critical":
-                wave_buckets["critical"].append(summary)
-            elif priority == "Major":
-                wave_buckets["high"].append(summary)
-            elif priority == "Normal":
-                wave_buckets["medium"].append(summary)
-            else:
-                wave_buckets["low"].append(summary)
+        # Generate subtask files
+        for task_type, priority in filtered_subtasks:
+            subtask_content = generate_subtask_file(row, task_type, priority, args.org)
+            subtask_path = os.path.join(repo_dir, f"subtask-{task_type}.md")
+            with open(subtask_path, "w") as f:
+                f.write(subtask_content)
 
+            stats["subtasks"] += 1
+            stats["tasks_by_type"][task_type] = stats["tasks_by_type"].get(task_type, 0) + 1
+
+        stats["parent_tasks"] += 1
+        all_repos.append((repo, parent_priority, filtered_subtasks))
+
+        # Bucket for wave summary
+        if parent_priority == "Critical":
+            wave_buckets["critical"].append(repo)
+        elif parent_priority == "Major":
+            wave_buckets["high"].append(repo)
+        elif parent_priority == "Normal":
+            wave_buckets["medium"].append(repo)
+        else:
+            wave_buckets["low"].append(repo)
+
+    # Generate DevLake follow-up tasks
+    devlake_count = 0
+    if not args.no_devlake and stats["parent_tasks"] > 0:
+        setup_content = generate_devlake_setup_task(args.org)
+        setup_path = os.path.join(args.output_dir, "_devlake-setup.md")
+        with open(setup_path, "w") as f:
+            f.write(setup_content)
+
+        dashboard_content = generate_devlake_dashboard_task(args.org)
+        dashboard_path = os.path.join(args.output_dir, "_devlake-dashboard.md")
+        with open(dashboard_path, "w") as f:
+            f.write(dashboard_content)
+
+        devlake_count = 2
+
+    # Print summary
     total_skipped = sum(skip_stats.values())
-    print(f"Generated {stats['total']} task files in {args.output_dir}")
-    print(f"Skipped {total_skipped} repos:")
+    print(f"Generated in {args.output_dir}:")
+    print(f"  Parent tasks (one per repo): {stats['parent_tasks']}")
+    print(f"  Subtasks (per test type):    {stats['subtasks']}")
+    if devlake_count:
+        print(f"  DevLake follow-up tasks:     {devlake_count}")
+    print(f"  Total Jira issues:           {stats['parent_tasks'] + stats['subtasks'] + devlake_count}")
+    print(f"\nSkipped {total_skipped} repos:")
     for reason, count in sorted(skip_stats.items()):
         print(f"  {reason}: {count}")
 
-    print(f"\nTask breakdown:")
-    for tt, count in sorted(stats["tasks"].items()):
+    print(f"\nSubtask breakdown:")
+    for tt, count in sorted(stats["tasks_by_type"].items()):
         label = TASK_TYPE_LABELS.get(tt, tt)
         print(f"  {label}: {count}")
 
@@ -497,15 +740,18 @@ def main():
                               ("Wave 3 - Medium priority", wave_buckets["medium"]),
                               ("Wave 4 - Low priority", wave_buckets["low"])]:
         if items:
-            print(f"\n  {wave_name} ({len(items)} tasks):")
+            print(f"\n  {wave_name} ({len(items)} repos):")
             for s in items:
                 print(f"    - {s}")
 
     print(f"\n{'='*60}")
-    print(f"Files created:")
-    for filename, summary, priority, _ in task_files:
-        print(f"  [{priority}] {filename}")
-        print(f"         {summary}")
+    print("Output structure:")
+    for repo, priority, subtasks in all_repos:
+        subtask_types = ", ".join(tt for tt, _ in subtasks)
+        print(f"  {slugify(repo)}/ [{priority}] → subtasks: {subtask_types}")
+    if devlake_count:
+        print(f"  _devlake-setup.md")
+        print(f"  _devlake-dashboard.md")
 
     print(f"\nReview files in {args.output_dir}/, then run create-tasks.py to push to Jira.")
 

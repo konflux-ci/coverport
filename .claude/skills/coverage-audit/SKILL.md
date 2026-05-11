@@ -84,20 +84,26 @@ Create a Python script that:
    - **Codecov detection**: check workflows for `codecov` references, check for `codecov.yml`
    - **CI system**: GitHub Actions, GitLab CI, Tekton, tox, etc.
    - **Top 3 contributors** (excluding bots)
+
+   **API efficiency:** Fetch the recursive tree ONCE per repo. Extract workflow paths, test file paths, CI indicators, and language hints all from the same tree response. Cache workflow file contents when fetched for test detection and reuse for Codecov detection — do NOT fetch the same file twice.
+
+   **Language inference:** When GitHub API returns `null` for language, infer from file extensions in the tree (e.g., `*.go` → Go, `*.py` → Python, `*.ts` → TypeScript). Use the most common extension. This prevents repos with code from being misclassified as no-language.
 4. **Writes CSV** sorted by repo name
 5. **Saves progress** to `<org>-audit-progress.json` every 10 repos (enables resume on interruption)
 
 #### Category Classification
 
-Classify each repo into one of:
-- `application` — has source code, potential for tests
+Classify each repo into one of (check in this order — first match wins):
+- `archived` — archived/deprecated (check BEFORE fork — archived forks are just archived)
 - `fork` — fork of upstream project
-- `archived` — archived/deprecated
-- `documentation` — docs-only repos (reStructuredText, HTML, no app code)
+- `documentation` — docs-only repos (reStructuredText, HTML, MDX, no app code). Language = MDX, HTML, CSS, or reStructuredText triggers this
+- `sample/test` — example, sample, demo, or test repos. Match "sample", "demo", "example", "quickstart", "test" ANYWHERE in name (not just prefix), but exclude repos with substantial source code
+- `ci-tooling` — reusable CI actions/workflows. Detect by: `action.yml` or `action.yaml` at repo root, or name contains "actions" and repo has no application source code
+- `configuration` — config-only repos (renovate config, shared settings). Detect by: name contains "config", "renovate-config", "settings", AND repo has no programming language or only YAML/JSON
 - `container-image` — Dockerfile-only, no application logic
-- `sample/test` — example, sample, demo, or test repos
 - `infrastructure` — deployment manifests, Helm charts, GitOps config
 - `catalog` — pipeline/task catalogs (Tekton, CI definitions)
+- `application` — has source code, potential for tests (default/fallback)
 
 #### Test Detection
 
@@ -138,7 +144,7 @@ Values: `yes`, `config-only`, `no`, `n/a`
 
 #### Skip Deep Scan
 
-For `archived`, `documentation`, `container-image`, `sample/test` categories — skip workflow/test analysis, set fields to `n/a`.
+For `archived`, `fork`, `documentation`, `container-image`, `sample/test`, `ci-tooling`, `configuration` categories — skip workflow/test analysis, set fields to `n/a`.
 
 #### Rate Limiting & Error Handling
 
@@ -194,6 +200,16 @@ repo selection needed.
 
 **Important:** This is a suggestion, not a decision. The user curates the
 checkboxes in the spreadsheet before downloading as CSV.
+
+### Step 3.5: Verify CSV Output
+
+After writing CSV, verify it by reading first 5 rows with Python's csv module:
+```python
+python3 -c "import csv; r=csv.DictReader(open('org-audit.csv')); [print(dict(row)) for row in list(r)[:5]]"
+```
+Do NOT use `column -s',' -t` — it breaks on quoted fields containing commas (e.g., "GitHub Actions, Tekton, Make").
+
+Also sanitize description fields before writing: strip newlines, replace commas in descriptions with semicolons, and truncate to 200 chars.
 
 ### Step 4: Print Summary Stats
 
