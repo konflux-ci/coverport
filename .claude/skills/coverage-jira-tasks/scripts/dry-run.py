@@ -337,7 +337,7 @@ def _common_task_fields(row, org):
         codecov_status = f"yes ({row.get('Codecov Details', '')})"
 
     desc_line = f"\n> {description}\n" if description else ""
-    stars_line = f" ({stars} ⭐)" if stars > 0 else ""
+    stars_line = f" ({stars} stars)" if stars > 0 else ""
     contributors_line = ""
     if contributors:
         contributors_line = f"\n**Key contacts:** {', '.join(contributors)}\n"

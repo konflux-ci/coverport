@@ -38,22 +38,22 @@ func init() {
 
 // exitWithError prints an error message and exits with status code 1
 func exitWithError(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "❌ Error: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "Error: "+format+"\n", args...)
 	os.Exit(1)
 }
 
 // printInfo prints an info message
 func printInfo(format string, args ...interface{}) {
-	fmt.Printf("ℹ️  "+format+"\n", args...)
+	fmt.Printf(format+"\n", args...)
 }
 
 // printSuccess prints a success message
 func printSuccess(format string, args ...interface{}) {
-	fmt.Printf("✅ "+format+"\n", args...)
+	fmt.Printf(format+"\n", args...)
 }
 
 // printWarning prints a warning message
 func printWarning(format string, args ...interface{}) {
-	fmt.Printf("⚠️  "+format+"\n", args...)
+	fmt.Printf("Warning: "+format+"\n", args...)
 }
 

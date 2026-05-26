@@ -53,7 +53,7 @@ type NYCCoverageData map[string]*NYCFileCoverage
 
 // processNYCCoverage processes NYC (Node.js/Istanbul) coverage data
 func (p *CoverageProcessor) processNYCCoverage(ctx context.Context, opts ProcessOptions) error {
-	fmt.Println("🔄 Processing NYC/Istanbul coverage data...")
+	fmt.Println("Processing NYC/Istanbul coverage data...")
 	fmt.Printf("   Input: %s\n", opts.InputDir)
 	fmt.Printf("   Output: %s\n", opts.OutputFile)
 
@@ -69,12 +69,12 @@ func (p *CoverageProcessor) processNYCCoverage(ctx context.Context, opts Process
 	if err != nil {
 		return fmt.Errorf("failed to read NYC coverage: %w", err)
 	}
-	fmt.Printf("   📊 Found coverage for %d files\n", len(coverageData))
+	fmt.Printf("   Found coverage for %d files\n", len(coverageData))
 
 	// Remap paths if repo root is provided
 	if opts.RepoRoot != "" {
 		remappedCount := remapNYCPaths(coverageData, opts.RepoRoot)
-		fmt.Printf("   ✅ Remapped %d file paths\n", remappedCount)
+		fmt.Printf("   Remapped %d file paths\n", remappedCount)
 	}
 
 	// Create output directory
@@ -87,27 +87,27 @@ func (p *CoverageProcessor) processNYCCoverage(ctx context.Context, opts Process
 	if err := writeNYCCoverage(coverageData, outputJSON); err != nil {
 		return fmt.Errorf("failed to write remapped coverage: %w", err)
 	}
-	fmt.Printf("   📄 Wrote remapped coverage to: %s\n", outputJSON)
+	fmt.Printf("   Wrote remapped coverage to: %s\n", outputJSON)
 
 	// Generate LCOV format for Codecov compatibility
 	lcovFile := strings.TrimSuffix(opts.OutputFile, filepath.Ext(opts.OutputFile)) + ".lcov"
 	if err := generateLCOV(coverageData, lcovFile); err != nil {
-		fmt.Printf("   ⚠️  Failed to generate LCOV: %v\n", err)
+		fmt.Printf("   Warning: Failed to generate LCOV: %v\n", err)
 	} else {
-		fmt.Printf("   📄 Generated LCOV report: %s\n", lcovFile)
+		fmt.Printf("   Generated LCOV report: %s\n", lcovFile)
 	}
 
 	// Copy to output file location for consistency
 	if opts.OutputFile != outputJSON {
 		if err := copyFile(outputJSON, opts.OutputFile); err != nil {
-			fmt.Printf("   ⚠️  Failed to copy to output file: %v\n", err)
+			fmt.Printf("   Warning: Failed to copy to output file: %v\n", err)
 		}
 	}
 
 	// Show coverage summary
 	showNYCCoverageSummary(coverageData)
 
-	fmt.Println("✅ NYC coverage processed successfully!")
+	fmt.Println("NYC coverage processed successfully!")
 	return nil
 }
 
@@ -412,7 +412,7 @@ func showNYCCoverageSummary(coverageData NYCCoverageData) {
 		branchPct = float64(coveredBranches) / float64(totalBranches) * 100
 	}
 
-	fmt.Println("\n   📊 Coverage Summary:")
+	fmt.Println("\n   Coverage Summary:")
 	fmt.Printf("      Statements: %.2f%% (%d/%d)\n", stmtPct, coveredStatements, totalStatements)
 	fmt.Printf("      Functions:  %.2f%% (%d/%d)\n", fnPct, coveredFunctions, totalFunctions)
 	fmt.Printf("      Branches:   %.2f%% (%d/%d)\n", branchPct, coveredBranches, totalBranches)

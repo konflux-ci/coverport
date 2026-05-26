@@ -201,7 +201,7 @@ func (c *CoverageClient) GetPodName(labelSelector string) (string, error) {
 
 // GetPodNameWithContext discovers a pod name with context support
 func (c *CoverageClient) GetPodNameWithContext(ctx context.Context, labelSelector string) (string, error) {
-	fmt.Printf("🔍 Discovering pod with label selector: %s\n", labelSelector)
+	fmt.Printf("Discovering pod with label selector: %s\n", labelSelector)
 
 	// List pods with the label selector
 	pods, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
@@ -218,7 +218,7 @@ func (c *CoverageClient) GetPodNameWithContext(ctx context.Context, labelSelecto
 	// Find the first running pod
 	for _, pod := range pods.Items {
 		if pod.Status.Phase == corev1.PodRunning {
-			fmt.Printf("✅ Found running pod: %s\n", pod.Name)
+			fmt.Printf("Found running pod: %s\n", pod.Name)
 			return pod.Name, nil
 		}
 	}
@@ -236,7 +236,7 @@ func (c *CoverageClient) CollectCoverageFromPod(ctx context.Context, podName, te
 // CollectCoverageFromPodWithContainer collects coverage data from a specific container in a pod via port-forwarding
 // If containerName is empty, it will try to detect the correct container automatically
 func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context, podName, containerName, testName string, targetPort int) error {
-	fmt.Printf("📊 Collecting coverage from pod %s for test: %s\n", podName, testName)
+	fmt.Printf("Collecting coverage from pod %s for test: %s\n", podName, testName)
 
 	// Setup port forwarding
 	localPort, stopChan, err := c.setupPortForward(podName, targetPort)
@@ -253,18 +253,18 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 	isPython := err == nil && health.CoverageEnabled
 
 	if isPython {
-		fmt.Printf("  🐍 Detected Python coverage server\n")
+		fmt.Printf("  Detected Python coverage server\n")
 		if health.CoverageFiles == 0 {
-			fmt.Printf("  🔄 No coverage files yet, triggering save...\n")
+			fmt.Printf("  No coverage files yet, triggering save...\n")
 			if err := c.triggerPythonCoverageSave(localPort); err != nil {
-				fmt.Printf("  ⚠️  Failed to trigger save via endpoint: %v\n", err)
+				fmt.Printf("  Warning: Failed to trigger save via endpoint: %v\n", err)
 				// Fallback: try exec into pod
 				if execErr := c.triggerCoverageSaveViaExec(ctx, podName, containerName); execErr != nil {
-					fmt.Printf("  ⚠️  Failed to trigger save via exec: %v\n", execErr)
+					fmt.Printf("  Warning: Failed to trigger save via exec: %v\n", execErr)
 				}
 			}
 		} else {
-			fmt.Printf("  📁 Found %d existing coverage file(s)\n", health.CoverageFiles)
+			fmt.Printf("  Found %d existing coverage file(s)\n", health.CoverageFiles)
 		}
 	}
 
@@ -278,16 +278,16 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 	if isPython {
 		testDir := filepath.Join(c.outputDir, testName)
 		if err := c.generatePythonXMLInPod(ctx, podName, containerName, testDir); err != nil {
-			fmt.Printf("  ⚠️  Failed to generate XML in pod: %v\n", err)
+			fmt.Printf("  Warning: Failed to generate XML in pod: %v\n", err)
 		}
 	}
 
 	// Get pod metadata and save it
 	if err := c.savePodMetadata(ctx, podName, containerName, testName, targetPort); err != nil {
-		fmt.Printf("⚠️  Failed to save pod metadata: %v\n", err)
+		fmt.Printf("Warning: Failed to save pod metadata: %v\n", err)
 	}
 
-	fmt.Printf("✅ Coverage collected successfully for test: %s\n", testName)
+	fmt.Printf("Coverage collected successfully for test: %s\n", testName)
 	return nil
 }
 
@@ -336,7 +336,7 @@ func (c *CoverageClient) triggerPythonCoverageSave(localPort int) error {
 		return fmt.Errorf("save failed: %s", saveResp.Message)
 	}
 
-	fmt.Printf("  ✅ Coverage save triggered (%d file(s) available)\n", saveResp.CoverageFiles)
+	fmt.Printf("  Coverage save triggered (%d file(s) available)\n", saveResp.CoverageFiles)
 	return nil
 }
 
@@ -385,7 +385,7 @@ func (c *CoverageClient) execInPod(ctx context.Context, podName, containerName s
 
 // generatePythonXMLInPod generates a Cobertura XML report by executing Python inside the pod
 func (c *CoverageClient) generatePythonXMLInPod(ctx context.Context, podName, containerName, testDir string) error {
-	fmt.Printf("  📊 Generating Cobertura XML report in pod...\n")
+	fmt.Printf("  Generating Cobertura XML report in pod...\n")
 
 	// Python script that combines coverage files from /dev/shm and generates XML
 	pythonScript := `
@@ -462,7 +462,7 @@ print('XML_GENERATED:' + xml_path)
 		return fmt.Errorf("write XML: %w", err)
 	}
 
-	fmt.Printf("  ✅ Cobertura XML saved: %s (%d bytes)\n", xmlPath, len(xmlContent))
+	fmt.Printf("  Cobertura XML saved: %s (%d bytes)\n", xmlPath, len(xmlContent))
 
 	// Step 4: Cleanup temp file in pod
 	cleanupCmd := []string{"python", "-c", "import os; os.remove('/dev/shm/coverage.xml')"}
@@ -494,7 +494,7 @@ func (c *CoverageClient) savePodMetadata(ctx context.Context, podName, container
 					Name:  container.Name,
 					Image: container.Image,
 				}
-				fmt.Printf("  🔍 Using specified container: %s (image: %s)\n", container.Name, container.Image)
+				fmt.Printf("  Using specified container: %s (image: %s)\n", container.Name, container.Image)
 				break
 			}
 		}
@@ -510,7 +510,7 @@ func (c *CoverageClient) savePodMetadata(ctx context.Context, podName, container
 						Name:  container.Name,
 						Image: container.Image,
 					}
-					fmt.Printf("  🔍 Detected coverage container: %s (image: %s)\n", container.Name, container.Image)
+					fmt.Printf("  Detected coverage container: %s (image: %s)\n", container.Name, container.Image)
 					break
 				}
 			}
@@ -521,7 +521,7 @@ func (c *CoverageClient) savePodMetadata(ctx context.Context, podName, container
 
 		// If no container explicitly exposes the port, try to detect by checking which one is listening
 		if coverageContainer == nil {
-			fmt.Printf("  🔍 Port %d not in container specs, detecting by checking listeners...\n", targetPort)
+			fmt.Printf("  Port %d not in container specs, detecting by checking listeners...\n", targetPort)
 			detectedContainer := c.detectContainerByPort(ctx, podName, pod.Spec.Containers, targetPort)
 			if detectedContainer != "" {
 				for _, container := range pod.Spec.Containers {
@@ -530,7 +530,7 @@ func (c *CoverageClient) savePodMetadata(ctx context.Context, podName, container
 							Name:  container.Name,
 							Image: container.Image,
 						}
-						fmt.Printf("  🔍 Detected container listening on port %d: %s (image: %s)\n", targetPort, container.Name, container.Image)
+						fmt.Printf("  Detected container listening on port %d: %s (image: %s)\n", targetPort, container.Name, container.Image)
 						break
 					}
 				}
@@ -540,7 +540,7 @@ func (c *CoverageClient) savePodMetadata(ctx context.Context, podName, container
 		// Final fallback: use first container
 		if coverageContainer == nil {
 			if len(pod.Spec.Containers) > 0 {
-				fmt.Printf("  ⚠️  Could not detect coverage container, using first container\n")
+				fmt.Printf("  Warning: Could not detect coverage container, using first container\n")
 				coverageContainer = &ContainerMetadata{
 					Name:  pod.Spec.Containers[0].Name,
 					Image: pod.Spec.Containers[0].Image,
@@ -575,7 +575,7 @@ func (c *CoverageClient) savePodMetadata(ctx context.Context, podName, container
 		return fmt.Errorf("write metadata file: %w", err)
 	}
 
-	fmt.Printf("  📁 Saved: %s\n", metadataPath)
+	fmt.Printf("  Saved: %s\n", metadataPath)
 	return nil
 }
 
@@ -696,7 +696,7 @@ func (c *CoverageClient) setupPortForward(podName string, targetPort int) (int, 
 	// Start port forwarding in background
 	go func() {
 		if err := forwarder.ForwardPorts(); err != nil {
-			fmt.Printf("⚠️  Port forward error: %v\n", err)
+			fmt.Printf("Warning: Port forward error: %v\n", err)
 		}
 	}()
 
@@ -710,7 +710,7 @@ func (c *CoverageClient) setupPortForward(podName string, targetPort int) (int, 
 			return 0, nil, fmt.Errorf("get forwarded ports: %w", err)
 		}
 		actualLocalPort := int(forwardedPorts[0].Local)
-		fmt.Printf("✅ Port forward ready: localhost:%d -> pod:%d\n", actualLocalPort, targetPort)
+		fmt.Printf("Port forward ready: localhost:%d -> pod:%d\n", actualLocalPort, targetPort)
 		return actualLocalPort, stopChan, nil
 	case <-time.After(30 * time.Second):
 		close(stopChan)
@@ -736,7 +736,7 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 
 	// Verify we're talking to a coverage server (v0.0.2+ sets this header)
 	if resp.Header.Get("X-Art-Coverage-Server") == "" {
-		fmt.Printf("  ⚠️  Response missing X-Art-Coverage-Server header (may be an older server or wrong endpoint)\n")
+		fmt.Printf("  Warning: Response missing X-Art-Coverage-Server header (may be an older server or wrong endpoint)\n")
 	}
 
 	// Read response body into buffer for format detection
@@ -747,7 +747,7 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 
 	// Detect format based on response fields
 	format := c.detectCoverageFormat(body)
-	fmt.Printf("  🔍 Detected coverage format: %s\n", format)
+	fmt.Printf("  Detected coverage format: %s\n", format)
 
 	switch format {
 	case FormatPython:
@@ -783,7 +783,7 @@ func (c *CoverageClient) collectPythonCoverage(body []byte, testName string) err
 	// Check if coverage data is empty
 	if resp.CoverageData == "" {
 		if resp.Message != "" {
-			fmt.Printf("  ⚠️  %s\n", resp.Message)
+			fmt.Printf("  Warning: %s\n", resp.Message)
 		}
 		return fmt.Errorf("no coverage data received")
 	}
@@ -806,9 +806,9 @@ func (c *CoverageClient) collectPythonCoverage(body []byte, testName string) err
 		return fmt.Errorf("write coverage file: %w", err)
 	}
 
-	fmt.Printf("  📁 Saved: %s (%d bytes)\n", coverageFile, len(coverageData))
+	fmt.Printf("  Saved: %s (%d bytes)\n", coverageFile, len(coverageData))
 	if resp.FilesCombined > 0 {
-		fmt.Printf("  📊 Combined from %d coverage file(s)\n", resp.FilesCombined)
+		fmt.Printf("  Combined from %d coverage file(s)\n", resp.FilesCombined)
 	}
 
 	return nil
@@ -850,8 +850,8 @@ func (c *CoverageClient) collectGoCoverage(body []byte, testName string) error {
 		return fmt.Errorf("write counters file: %w", err)
 	}
 
-	fmt.Printf("  📁 Saved: %s\n", metaPath)
-	fmt.Printf("  📁 Saved: %s\n", counterPath)
+	fmt.Printf("  Saved: %s\n", metaPath)
+	fmt.Printf("  Saved: %s\n", counterPath)
 
 	return nil
 }
@@ -861,7 +861,7 @@ func (c *CoverageClient) GenerateCoverageReport(testName string) error {
 	testDir := filepath.Join(c.outputDir, testName)
 	reportPath := filepath.Join(testDir, "coverage.out")
 
-	fmt.Printf("📊 Generating coverage report for test: %s\n", testName)
+	fmt.Printf("Generating coverage report for test: %s\n", testName)
 
 	// Run go tool covdata to convert binary format to text
 	cmd := exec.Command("go", "tool", "covdata", "textfmt",
@@ -873,12 +873,12 @@ func (c *CoverageClient) GenerateCoverageReport(testName string) error {
 		return fmt.Errorf("generate coverage report: %w\nOutput: %s", err, output)
 	}
 
-	fmt.Printf("✅ Coverage report generated: %s\n", reportPath)
+	fmt.Printf("Coverage report generated: %s\n", reportPath)
 
 	// Apply path remapping if enabled
 	if c.enablePathRemap {
 		if err := c.remapCoveragePaths(reportPath); err != nil {
-			fmt.Printf("⚠️  Path remapping failed: %v (continuing with original paths)\n", err)
+			fmt.Printf("Warning: Path remapping failed: %v (continuing with original paths)\n", err)
 		}
 	}
 
@@ -909,7 +909,7 @@ func (c *CoverageClient) FilterCoverageReport(testName string, patterns ...strin
 		if err := os.WriteFile(filteredPath, data, 0644); err != nil {
 			return fmt.Errorf("write filtered report: %w", err)
 		}
-		fmt.Printf("✅ Coverage report (no filters applied): %s\n", filteredPath)
+		fmt.Printf("Coverage report (no filters applied): %s\n", filteredPath)
 		return nil
 	}
 
@@ -936,7 +936,7 @@ func (c *CoverageClient) FilterCoverageReport(testName string, patterns ...strin
 		return fmt.Errorf("write filtered report: %w", err)
 	}
 
-	fmt.Printf("✅ Filtered coverage report: %s (removed %d lines matching: %v)\n",
+	fmt.Printf("Filtered coverage report: %s (removed %d lines matching: %v)\n",
 		filteredPath, filteredCount, filterPatterns)
 	return nil
 }
@@ -952,7 +952,7 @@ func (c *CoverageClient) GenerateHTMLReport(testName string) error {
 		reportPath = filepath.Join(testDir, "coverage.out")
 	}
 
-	fmt.Printf("📊 Generating HTML coverage report for test: %s\n", testName)
+	fmt.Printf("Generating HTML coverage report for test: %s\n", testName)
 
 	cmd := exec.Command("go", "tool", "cover",
 		"-html="+reportPath,
@@ -963,7 +963,7 @@ func (c *CoverageClient) GenerateHTMLReport(testName string) error {
 		return fmt.Errorf("generate HTML report: %w\nOutput: %s", err, output)
 	}
 
-	fmt.Printf("✅ HTML report generated: %s\n", htmlPath)
+	fmt.Printf("HTML report generated: %s\n", htmlPath)
 	return nil
 }
 
@@ -982,7 +982,7 @@ func (c *CoverageClient) PrintCoverageSummary(testName string) error {
 		return fmt.Errorf("read coverage report: %w", err)
 	}
 
-	fmt.Printf("\n📊 Coverage Summary for test: %s\n", testName)
+	fmt.Printf("\nCoverage Summary for test: %s\n", testName)
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println(string(data))
 	fmt.Println(strings.Repeat("=", 60))
@@ -1006,7 +1006,7 @@ func (c *CoverageClient) ProcessCoverageReports(testName string) error {
 	// Generate HTML report
 	if err := c.GenerateHTMLReport(testName); err != nil {
 		// HTML generation might fail if source files aren't available, log but don't fail
-		fmt.Printf("⚠️  HTML report generation failed (source files may not be available): %v\n", err)
+		fmt.Printf("Warning: HTML report generation failed (source files may not be available): %v\n", err)
 	}
 
 	return nil
@@ -1026,7 +1026,7 @@ type PushCoverageArtifactOptions struct {
 func (c *CoverageClient) PushCoverageArtifact(ctx context.Context, testName string, opts PushCoverageArtifactOptions) error {
 	testDir := filepath.Join(c.outputDir, testName)
 
-	fmt.Printf("📦 Pushing coverage artifact for test: %s\n", testName)
+	fmt.Printf("Pushing coverage artifact for test: %s\n", testName)
 	fmt.Printf("   Registry: %s/%s:%s\n", opts.Registry, opts.Repository, opts.Tag)
 	fmt.Printf("   Source directory: %s\n", testDir)
 
@@ -1070,7 +1070,7 @@ func (c *CoverageClient) PushCoverageArtifact(ctx context.Context, testName stri
 			return fmt.Errorf("add file %s to store: %w", file.Name(), err)
 		}
 		fileDescriptors = append(fileDescriptors, desc)
-		fmt.Printf("   📄 Added: %s (%d bytes)\n", file.Name(), fileInfo.Size())
+		fmt.Printf("   Added: %s (%d bytes)\n", file.Name(), fileInfo.Size())
 	}
 
 	// Pack the files and tag the packed manifest
@@ -1134,7 +1134,7 @@ func (c *CoverageClient) PushCoverageArtifact(ctx context.Context, testName stri
 		return fmt.Errorf("push artifact: %w", err)
 	}
 
-	fmt.Printf("✅ Coverage artifact pushed successfully\n")
+	fmt.Printf("Coverage artifact pushed successfully\n")
 	fmt.Printf("   Location: %s/%s:%s\n", opts.Registry, opts.Repository, opts.Tag)
 
 	return nil
@@ -1154,11 +1154,11 @@ func (c *CoverageClient) remapCoveragePaths(reportPath string) error {
 	pathMappings := c.detectContainerPaths(lines)
 
 	if len(pathMappings) == 0 {
-		fmt.Println("📍 No container paths detected, using paths as-is")
+		fmt.Println("No container paths detected, using paths as-is")
 		return nil
 	}
 
-	fmt.Printf("📍 Auto-detected path mappings:\n")
+	fmt.Printf("Auto-detected path mappings:\n")
 	for containerPath, localPath := range pathMappings {
 		fmt.Printf("  [PATH] %s -> %s\n", containerPath, localPath)
 	}
@@ -1202,7 +1202,7 @@ func (c *CoverageClient) remapCoveragePaths(reportPath string) error {
 		return fmt.Errorf("write remapped report: %w", err)
 	}
 
-	fmt.Printf("✅ Path remapping complete (%d lines remapped)\n", remappedCount)
+	fmt.Printf("Path remapping complete (%d lines remapped)\n", remappedCount)
 	return nil
 }
 

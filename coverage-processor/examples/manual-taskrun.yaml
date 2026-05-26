@@ -27,7 +27,7 @@ spec:
   
   params:
   - name: coverage-artifact-ref
-    # ⚠️ REQUIRED: Replace with your actual coverage artifact reference
+    # REQUIRED: Replace with your actual coverage artifact reference
     # Format: quay.io/<org>/<repo>:<tag>
     # Example: quay.io/psturc/coverage-artifacts:e2e-coverage-20251110_0959
     value: "__COVERAGE_ARTIFACT_REF__"

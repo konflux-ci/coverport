@@ -57,7 +57,7 @@ spec:
         #!/bin/sh
         set -eux
         
-        echo "🚀 Starting coverage collection..."
+        echo "Starting coverage collection..."
         echo "Snapshot: $SNAPSHOT"
         echo "Test Name: $TEST_NAME"
         
@@ -81,11 +81,11 @@ spec:
         # Execute coverage collection
         eval $CMD
         
-        echo "✅ Coverage collection complete!"
+        echo "Coverage collection complete!"
         
         # Show artifact reference if available
         if [ -f "$(results.COVERAGE_ARTIFACT_REF.path)" ]; then
           ARTIFACT_REF=$(cat $(results.COVERAGE_ARTIFACT_REF.path))
-          echo "📦 Coverage artifact: $ARTIFACT_REF"
+          echo "Coverage artifact: $ARTIFACT_REF"
         fi
 

@@ -37,13 +37,13 @@ type CloneOptions struct {
 
 // Clone clones a git repository at a specific commit
 func (c *RepositoryCloner) Clone(ctx context.Context, opts CloneOptions) error {
-	fmt.Printf("📦 Cloning repository: %s\n", opts.RepoURL)
+	fmt.Printf("Cloning repository: %s\n", opts.RepoURL)
 	fmt.Printf("   Commit: %s\n", opts.CommitSHA)
 	fmt.Printf("   Target: %s\n", opts.TargetDir)
 
 	// Check if target directory already exists
 	if _, err := os.Stat(opts.TargetDir); err == nil {
-		fmt.Println("   ℹ️  Target directory already exists, removing...")
+		fmt.Println("   Target directory already exists, removing...")
 		if err := os.RemoveAll(opts.TargetDir); err != nil {
 			return fmt.Errorf("failed to remove existing directory: %w", err)
 		}
@@ -80,7 +80,7 @@ func (c *RepositoryCloner) Clone(ctx context.Context, opts CloneOptions) error {
 
 	// Checkout specific commit if different from HEAD
 	if opts.CommitSHA != "" {
-		fmt.Printf("📍 Checking out commit: %s\n", opts.CommitSHA)
+		fmt.Printf("Checking out commit: %s\n", opts.CommitSHA)
 		
 		// First, we might need to fetch if this is a shallow clone
 		if opts.Depth > 0 {
@@ -109,11 +109,11 @@ func (c *RepositoryCloner) Clone(ctx context.Context, opts CloneOptions) error {
 		}
 	}
 
-	fmt.Println("✅ Repository cloned successfully")
+	fmt.Println("Repository cloned successfully")
 	
 	// Show some info about the cloned repo
 	if err := c.ShowInfo(ctx, opts.TargetDir); err != nil {
-		fmt.Printf("⚠️  Failed to show repo info: %v\n", err)
+		fmt.Printf("Warning: Failed to show repo info: %v\n", err)
 	}
 
 	return nil

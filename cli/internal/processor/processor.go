@@ -94,7 +94,7 @@ func (p *CoverageProcessor) Process(ctx context.Context, opts ProcessOptions) er
 			return err
 		}
 		format = detectedFormat
-		fmt.Printf("🔍 Detected coverage format: %s\n", format)
+		fmt.Printf("Detected coverage format: %s\n", format)
 	}
 
 	switch format {
@@ -111,7 +111,7 @@ func (p *CoverageProcessor) Process(ctx context.Context, opts ProcessOptions) er
 
 // processGoCoverage processes Go binary coverage data
 func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessOptions) error {
-	fmt.Println("🔄 Processing Go coverage data...")
+	fmt.Println("Processing Go coverage data...")
 	fmt.Printf("   Input: %s\n", opts.InputDir)
 	fmt.Printf("   Output: %s\n", opts.OutputFile)
 
@@ -160,9 +160,9 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 	// Remap absolute paths to relative paths (for Codecov compatibility)
 	if opts.RepoRoot != "" {
 		if err := p.remapPathsToRelative(opts.OutputFile, opts.RepoRoot); err != nil {
-			fmt.Printf("⚠️  Failed to remap paths: %v\n", err)
+			fmt.Printf("Warning: Failed to remap paths: %v\n", err)
 		} else {
-			fmt.Println("   ✅ Remapped absolute paths to relative paths")
+			fmt.Println("   Remapped absolute paths to relative paths")
 		}
 	}
 
@@ -170,7 +170,7 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 	filteredFile := opts.OutputFile
 	if len(opts.Filters) > 0 {
 		if err := p.applyFilters(opts.OutputFile, opts.Filters); err != nil {
-			fmt.Printf("⚠️  Failed to apply filters: %v\n", err)
+			fmt.Printf("Warning: Failed to apply filters: %v\n", err)
 		} else {
 			fmt.Printf("   Applied filters: %v\n", opts.Filters)
 			// Use filtered file for summary
@@ -186,17 +186,17 @@ func (p *CoverageProcessor) processGoCoverage(ctx context.Context, opts ProcessO
 	// Generate HTML report if requested
 	if opts.GenerateHTML {
 		if err := p.generateHTMLReport(ctx, goPath, filteredFile, opts.RepoRoot); err != nil {
-			fmt.Printf("⚠️  Failed to generate HTML report: %v\n", err)
+			fmt.Printf("Warning: Failed to generate HTML report: %v\n", err)
 		}
 	}
 
-	fmt.Println("✅ Go coverage processed successfully!")
+	fmt.Println("Go coverage processed successfully!")
 	return nil
 }
 
 // processPythonCoverage processes Python coverage data
 func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts ProcessOptions) error {
-	fmt.Println("🔄 Processing Python coverage data...")
+	fmt.Println("Processing Python coverage data...")
 	fmt.Printf("   Input: %s\n", opts.InputDir)
 	fmt.Printf("   Output: %s\n", opts.OutputFile)
 
@@ -251,10 +251,10 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 	// This allows coverage.py to find source files when they're at different paths
 	rcFile, err := p.createPythonCoverageRC(opts.RepoRoot)
 	if err != nil {
-		fmt.Printf("   ⚠️  Could not create coverage config: %v\n", err)
+		fmt.Printf("   Warning: Could not create coverage config: %v\n", err)
 	} else if rcFile != "" {
 		defer os.Remove(rcFile)
-		fmt.Printf("   📍 Created path mapping config: %s\n", rcFile)
+		fmt.Printf("   Created path mapping config: %s\n", rcFile)
 	}
 
 	// Generate XML report using Python's coverage tool
@@ -282,7 +282,7 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 		return fmt.Errorf("coverage XML file was not created: %w", err)
 	}
 
-	fmt.Printf("   ✅ Coverage XML generated: %s\n", opts.OutputFile)
+	fmt.Printf("   Coverage XML generated: %s\n", opts.OutputFile)
 
 	// Optionally generate text report for summary
 	textReportFile := strings.TrimSuffix(opts.OutputFile, filepath.Ext(opts.OutputFile)) + ".txt"
@@ -301,7 +301,7 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 	if err == nil {
 		// Save text report
 		if err := os.WriteFile(textReportFile, textOutput, 0644); err == nil {
-			fmt.Printf("   ✅ Text report generated: %s\n", textReportFile)
+			fmt.Printf("   Text report generated: %s\n", textReportFile)
 		}
 
 		// Show summary (last line typically contains total)
@@ -310,7 +310,7 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 			if strings.HasPrefix(line, "TOTAL") {
 				parts := strings.Fields(line)
 				if len(parts) >= 4 {
-					fmt.Printf("   📊 Total coverage: %s\n", parts[len(parts)-1])
+					fmt.Printf("   Total coverage: %s\n", parts[len(parts)-1])
 				}
 				break
 			}
@@ -320,11 +320,11 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 	// Generate HTML report if requested
 	if opts.GenerateHTML {
 		if err := p.generatePythonHTMLReport(ctx, pythonPath, absCoverageFile, opts.RepoRoot, opts.InputDir, rcFile); err != nil {
-			fmt.Printf("⚠️  Failed to generate HTML report: %v\n", err)
+			fmt.Printf("Warning: Failed to generate HTML report: %v\n", err)
 		}
 	}
 
-	fmt.Println("✅ Python coverage processed successfully!")
+	fmt.Println("Python coverage processed successfully!")
 	return nil
 }
 
@@ -372,7 +372,7 @@ source =
 
 // generatePythonHTMLReport generates an HTML coverage report for Python
 func (p *CoverageProcessor) generatePythonHTMLReport(ctx context.Context, pythonPath, coverageFile, repoRoot, outputDir, rcFile string) error {
-	fmt.Println("   📊 Generating HTML coverage report...")
+	fmt.Println("   Generating HTML coverage report...")
 
 	htmlDir := filepath.Join(outputDir, "htmlcov")
 
@@ -393,7 +393,7 @@ func (p *CoverageProcessor) generatePythonHTMLReport(ctx context.Context, python
 		return fmt.Errorf("failed to generate HTML report: %w\nOutput: %s", err, string(output))
 	}
 
-	fmt.Printf("   ✅ HTML report generated: %s/index.html\n", htmlDir)
+	fmt.Printf("   HTML report generated: %s/index.html\n", htmlDir)
 	return nil
 }
 
@@ -594,7 +594,7 @@ func (p *CoverageProcessor) showGoCoverageSummary(ctx context.Context, goPath, c
 		if strings.HasPrefix(line, "total:") {
 			parts := strings.Fields(line)
 			if len(parts) >= 3 {
-				fmt.Printf("   📊 Total coverage: %s\n", parts[len(parts)-1])
+				fmt.Printf("   Total coverage: %s\n", parts[len(parts)-1])
 			}
 			break
 		}
@@ -605,7 +605,7 @@ func (p *CoverageProcessor) showGoCoverageSummary(ctx context.Context, goPath, c
 
 // generateHTMLReport generates an HTML coverage report
 func (p *CoverageProcessor) generateHTMLReport(ctx context.Context, goPath, coverageFile, repoRoot string) error {
-	fmt.Println("   📊 Generating HTML coverage report...")
+	fmt.Println("   Generating HTML coverage report...")
 
 	// Determine HTML output path (same directory as coverage file)
 	htmlPath := strings.TrimSuffix(coverageFile, filepath.Ext(coverageFile)) + ".html"
@@ -636,6 +636,6 @@ func (p *CoverageProcessor) generateHTMLReport(ctx context.Context, goPath, cove
 		return fmt.Errorf("failed to generate HTML report: %w\nOutput: %s", err, string(output))
 	}
 
-	fmt.Printf("   ✅ HTML report generated: %s\n", htmlPath)
+	fmt.Printf("   HTML report generated: %s\n", htmlPath)
 	return nil
 }

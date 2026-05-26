@@ -126,7 +126,7 @@ func processFromManifest(ctx context.Context, cmd *cobra.Command, verbose bool) 
 		exitWithError("Failed to load collection manifest: %v", err)
 	}
 
-	fmt.Println("🚀 coverport - Coverage Processing Tool (Batch Mode)")
+	fmt.Println("coverport - Coverage Processing Tool (Batch Mode)")
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("Collection:    %s\n", collectionManifest.TestName)
 	fmt.Printf("Components:    %d\n", len(collectionManifest.Components))
@@ -174,7 +174,7 @@ func processFromManifest(ctx context.Context, cmd *cobra.Command, verbose bool) 
 
 	// Print summary
 	fmt.Println("\n" + strings.Repeat("=", 60))
-	fmt.Println("📊 Processing Summary")
+	fmt.Println("Processing Summary")
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("Total components:     %d\n", len(collectionManifest.Components))
 	fmt.Printf("Successfully processed: %d\n", successCount)
@@ -191,7 +191,7 @@ func processFromManifest(ctx context.Context, cmd *cobra.Command, verbose bool) 
 		exitWithError("Failed to process any components")
 	}
 
-	fmt.Println("\n✅ Coverage processing complete!")
+	fmt.Println("\nCoverage processing complete!")
 }
 
 // processComponent processes a single component
@@ -310,7 +310,7 @@ func runProcess(cmd *cobra.Command, args []string) {
 		defer cleanupWorkspace(workspace)
 	}
 
-	fmt.Println("🚀 coverport - Coverage Processing Tool")
+	fmt.Println("coverport - Coverage Processing Tool")
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("Workspace:     %s\n", workspace)
 	fmt.Println(strings.Repeat("=", 60))
@@ -381,9 +381,9 @@ func runProcess(cmd *cobra.Command, args []string) {
 		// TODO: Add SonarQube upload support
 	}
 
-	fmt.Println("\n✅ Coverage processing complete!")
+	fmt.Println("\nCoverage processing complete!")
 	if keepWorkspace {
-		fmt.Printf("📁 Workspace saved at: %s\n", workspace)
+		fmt.Printf("Workspace saved at: %s\n", workspace)
 	}
 }
 
@@ -414,7 +414,7 @@ func cleanupWorkspace(dir string) {
 
 // pullCoverageArtifact pulls coverage artifact from OCI registry using oras
 func pullCoverageArtifact(ctx context.Context, artifactRef, workspace string, verbose bool) (string, error) {
-	fmt.Printf("📦 Pulling coverage artifact: %s\n", artifactRef)
+	fmt.Printf("Pulling coverage artifact: %s\n", artifactRef)
 
 	// Check if oras is available
 	orasPath, err := exec.LookPath("oras")
@@ -447,7 +447,7 @@ func pullCoverageArtifact(ctx context.Context, artifactRef, workspace string, ve
 	}
 
 	if verbose {
-		fmt.Println("📄 Artifact contents:")
+		fmt.Println("Artifact contents:")
 		entries, _ := os.ReadDir(coverageDir)
 		for _, entry := range entries {
 			fmt.Printf("   - %s\n", entry.Name())
@@ -530,14 +530,14 @@ func uploadToCodecov(ctx context.Context, token, coverageFile, repoRoot string, 
 	filteredFile := strings.TrimSuffix(coverageFile, ".out") + "_filtered.out"
 	if _, err := os.Stat(filteredFile); err == nil {
 		sourceFile = filteredFile
-		fmt.Printf("   📄 Using filtered coverage file\n")
+		fmt.Printf("   Using filtered coverage file\n")
 	}
 
 	// For NYC/Istanbul coverage, use .lcov file if available (better Codecov support)
 	lcovFile := strings.TrimSuffix(coverageFile, filepath.Ext(coverageFile)) + ".lcov"
 	if _, err := os.Stat(lcovFile); err == nil {
 		sourceFile = lcovFile
-		fmt.Printf("   📄 Using LCOV coverage file for upload\n")
+		fmt.Printf("   Using LCOV coverage file for upload\n")
 	}
 
 	// Copy coverage file to repository directory for upload
@@ -589,7 +589,7 @@ func copyCoverageToRepo(srcPath, dstPath string) error {
 		return fmt.Errorf("write coverage to repo: %w", err)
 	}
 
-	fmt.Printf("   📄 Copied coverage file to repository: %s\n", dstPath)
+	fmt.Printf("   Copied coverage file to repository: %s\n", dstPath)
 	return nil
 }
 

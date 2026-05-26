@@ -37,7 +37,7 @@ func NewImageMetadataExtractor() (*ImageMetadataExtractor, error) {
 
 // ExtractGitMetadata extracts git metadata from a container image using cosign
 func (e *ImageMetadataExtractor) ExtractGitMetadata(ctx context.Context, image string) (*GitMetadata, error) {
-	fmt.Printf("🔍 Extracting git metadata from image: %s\n", image)
+	fmt.Printf("Extracting git metadata from image: %s\n", image)
 
 	// Download attestation using cosign
 	cmd := exec.CommandContext(ctx, e.cosignPath, "download", "attestation", image)
@@ -149,7 +149,7 @@ func (e *ImageMetadataExtractor) ExtractGitMetadata(ctx context.Context, image s
 	// Extract PR number from annotations or branch name
 	metadata.PullRequest = extractPRNumber(annotations, metadata.Branch)
 
-	fmt.Printf("✅ Extracted git metadata:\n")
+	fmt.Printf("Extracted git metadata:\n")
 	fmt.Printf("   Repository: %s\n", metadata.RepoURL)
 	fmt.Printf("   Commit: %s\n", metadata.CommitSHA)
 	if metadata.Branch != "" {

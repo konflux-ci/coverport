@@ -3,7 +3,7 @@
 
 set -e
 
-echo "🚀 coverport - Local Usage Examples"
+echo "coverport - Local Usage Examples"
 echo "===================================="
 
 # Example 1: Discover pods by label selector
@@ -86,6 +86,6 @@ coverport collect \
   --verbose
 
 echo ""
-echo "✅ All examples complete!"
-echo "📁 Coverage data saved to: ./coverage-output"
+echo "All examples complete!"
+echo "Coverage data saved to: ./coverage-output"
 

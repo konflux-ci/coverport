@@ -122,7 +122,7 @@ spec:
               set -eux
               
               if [ "$COVERAGE_ARTIFACT_REF" = "not-available" ]; then
-                echo "⚠️  No coverage artifact available, skipping"
+                echo "Warning: No coverage artifact available, skipping"
                 exit 0
               fi
               
@@ -139,7 +139,7 @@ spec:
                 --workspace=/workspace/process \
                 --verbose
               
-              echo "✅ Coverage processed and uploaded!"
+              echo "Coverage processed and uploaded!"
 
     - name: cleanup
       runAfter:

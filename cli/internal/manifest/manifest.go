@@ -68,7 +68,7 @@ func (m *CollectionManifest) Save(outputDir string) error {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 	
-	fmt.Printf("📄 Collection manifest saved: %s\n", manifestPath)
+	fmt.Printf("Collection manifest saved: %s\n", manifestPath)
 	return nil
 }
 

@@ -184,7 +184,7 @@ func runCollect(cmd *cobra.Command, args []string) {
 		coveragePorts = []int{53700, 9095}
 	}
 
-	fmt.Println("🚀 coverport - Coverage Collection Tool")
+	fmt.Println("coverport - Coverage Collection Tool")
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("Test Name:     %s\n", testName)
 	fmt.Printf("Output Dir:    %s\n", outputDir)
@@ -228,7 +228,7 @@ func runCollect(cmd *cobra.Command, args []string) {
 		exitWithError("No running pods found matching the criteria")
 	}
 
-	fmt.Printf("\n📍 Discovered %d pod(s) for coverage collection:\n", len(podsToCollect))
+	fmt.Printf("\nDiscovered %d pod(s) for coverage collection:\n", len(podsToCollect))
 	for i, pod := range podsToCollect {
 		fmt.Printf("  %d. %s/%s (component: %s, image: %s)\n",
 			i+1, pod.Namespace, pod.Name, pod.ComponentName, truncateImage(pod.Image))
@@ -277,8 +277,8 @@ func runCollect(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	fmt.Println("\n✅ Coverage collection complete!")
-	fmt.Printf("📁 Coverage data saved to: %s\n", outputDir)
+	fmt.Println("\nCoverage collection complete!")
+	fmt.Printf("Coverage data saved to: %s\n", outputDir)
 }
 
 func setupKubeClient() (kubernetes.Interface, *rest.Config) {
@@ -310,12 +310,12 @@ func discoverPodsFromSnapshot(ctx context.Context, clientset kubernetes.Interfac
 
 	if snapshotFile != "" {
 		if verbose {
-			fmt.Printf("📄 Reading snapshot from file: %s\n", snapshotFile)
+			fmt.Printf("Reading snapshot from file: %s\n", snapshotFile)
 		}
 		snap, err = snapshot.ParseSnapshotFromFile(snapshotFile)
 	} else {
 		if verbose {
-			fmt.Printf("📄 Parsing snapshot from JSON\n")
+			fmt.Printf("Parsing snapshot from JSON\n")
 		}
 		snap, err = snapshot.ParseSnapshot(snapshotJSON)
 	}
@@ -324,7 +324,7 @@ func discoverPodsFromSnapshot(ctx context.Context, clientset kubernetes.Interfac
 		return nil, fmt.Errorf("parse snapshot: %w", err)
 	}
 
-	fmt.Printf("📦 Snapshot contains %d component(s):\n", len(snap.Components))
+	fmt.Printf("Snapshot contains %d component(s):\n", len(snap.Components))
 	for i, comp := range snap.Components {
 		fmt.Printf("  %d. %s: %s\n", i+1, comp.Name, truncateImage(comp.ContainerImage))
 	}
@@ -335,7 +335,7 @@ func discoverPodsFromSnapshot(ctx context.Context, clientset kubernetes.Interfac
 
 func discoverPodsFromImages(ctx context.Context, clientset kubernetes.Interface, images []string, verbose bool) ([]discovery.PodInfo, error) {
 	if verbose {
-		fmt.Printf("🔍 Searching for pods with images:\n")
+		fmt.Printf("Searching for pods with images:\n")
 		for _, img := range images {
 			fmt.Printf("  - %s\n", img)
 		}
@@ -351,7 +351,7 @@ func discoverPodsFromLabelSelector(ctx context.Context, clientset kubernetes.Int
 	}
 
 	if verbose {
-		fmt.Printf("🔍 Searching for pods with label selector: %s (namespace: %s)\n", labelSelector, namespace)
+		fmt.Printf("Searching for pods with label selector: %s (namespace: %s)\n", labelSelector, namespace)
 	}
 
 	disco := discovery.NewImageDiscovery(clientset)
@@ -360,7 +360,7 @@ func discoverPodsFromLabelSelector(ctx context.Context, clientset kubernetes.Int
 
 func discoverPodsFromNames(ctx context.Context, clientset kubernetes.Interface, verbose bool) ([]discovery.PodInfo, error) {
 	if verbose {
-		fmt.Printf("🔍 Using explicitly specified pods: %v\n", podNames)
+		fmt.Printf("Using explicitly specified pods: %v\n", podNames)
 	}
 
 	var pods []discovery.PodInfo
@@ -397,7 +397,7 @@ func discoverPodsFromNames(ctx context.Context, clientset kubernetes.Interface, 
 }
 
 func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discovery.PodInfo, fallbackPorts []int, portExplicit bool, verbose bool) (*manifest.ComponentInfo, error) {
-	fmt.Printf("\n📊 Collecting from: %s/%s (component: %s)\n", podInfo.Namespace, podInfo.Name, podInfo.ComponentName)
+	fmt.Printf("\nCollecting from: %s/%s (component: %s)\n", podInfo.Namespace, podInfo.Name, podInfo.ComponentName)
 
 	// Create component-specific output directory
 	componentDir := filepath.Join(outputDir, podInfo.ComponentName)
@@ -426,10 +426,10 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 	if !portExplicit && podInfo.ContainerName != "" {
 		detected, err := client.DetectCoveragePort(ctx, podInfo.Name, podInfo.ContainerName)
 		if err == nil {
-			fmt.Printf("  🔍 Detected coverage port %d in container %s\n", detected, podInfo.ContainerName)
+			fmt.Printf("  Detected coverage port %d in container %s\n", detected, podInfo.ContainerName)
 			ports = []int{detected}
 		} else if verbose {
-			fmt.Printf("  ⚠️  Port detection failed (%v), falling back to %v\n", err, fallbackPorts)
+			fmt.Printf("  Warning: Port detection failed (%v), falling back to %v\n", err, fallbackPorts)
 		}
 	}
 
@@ -442,7 +442,7 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 			break
 		}
 		if len(ports) > 1 {
-			fmt.Printf("  ⚠️  Port %d failed, trying next...\n", port)
+			fmt.Printf("  Warning: Port %d failed, trying next...\n", port)
 		}
 	}
 	if lastErr != nil {
@@ -480,7 +480,7 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 }
 
 func pushCoverageArtifact(ctx context.Context, pods []discovery.PodInfo) error {
-	fmt.Println("\n📦 Pushing coverage artifact to OCI registry...")
+	fmt.Println("\nPushing coverage artifact to OCI registry...")
 
 	// For multi-component, we push the entire output directory
 	// Create a temporary coverage client just for pushing
@@ -552,7 +552,7 @@ func collectFromURL(ctx context.Context, verbose bool) {
 	client.SetDefaultFilters(filters)
 
 	// Collect coverage from URL
-	fmt.Printf("  🔄 Sending coverage collection request...\n")
+	fmt.Printf("  Sending coverage collection request...\n")
 	if err := client.CollectCoverageFromURL(coverageURL, testName); err != nil {
 		exitWithError("Failed to collect coverage from URL: %v", err)
 	}
@@ -583,12 +583,12 @@ func collectFromURL(ctx context.Context, verbose bool) {
 	if err := collectionManifest.Save(outputDir); err != nil {
 		printWarning("Failed to save manifest: %v", err)
 	} else {
-		fmt.Printf("  📋 Manifest saved: %s/metadata.json\n", outputDir)
+		fmt.Printf("  Manifest saved: %s/metadata.json\n", outputDir)
 	}
 
-	fmt.Println("\n✅ Coverage collection complete!")
-	fmt.Printf("📊 Coverage output: %s\n", outputDir)
-	fmt.Printf("🔍 To process and upload coverage, run:\n")
+	fmt.Println("\nCoverage collection complete!")
+	fmt.Printf("Coverage output: %s\n", outputDir)
+	fmt.Printf("To process and upload coverage, run:\n")
 	fmt.Printf("   coverport process --coverage-dir=%s\n", outputDir)
 }
 

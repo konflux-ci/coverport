@@ -108,7 +108,7 @@ func (u *CodecovUploader) ensureCodecovCLI(ctx context.Context) error {
 	u.codecovPath = codecovPath
 	u.downloadedCLI = true
 	
-	fmt.Printf("✅ Codecov CLI downloaded to: %s\n", codecovPath)
+	fmt.Printf("Codecov CLI downloaded to: %s\n", codecovPath)
 	return nil
 }
 
@@ -119,7 +119,7 @@ func (u *CodecovUploader) Upload(ctx context.Context, opts CodecovOptions) error
 		return err
 	}
 
-	fmt.Println("📤 Uploading coverage to Codecov...")
+	fmt.Println("Uploading coverage to Codecov...")
 	fmt.Printf("   File: %s\n", opts.CoverageFile)
 	fmt.Printf("   Commit: %s\n", opts.CommitSHA)
 	if opts.Branch != "" {
@@ -188,7 +188,7 @@ func (u *CodecovUploader) Upload(ctx context.Context, opts CodecovOptions) error
 		return fmt.Errorf("codecov upload failed: %w", err)
 	}
 
-	fmt.Println("✅ Coverage uploaded to Codecov successfully!")
+	fmt.Println("Coverage uploaded to Codecov successfully!")
 	return nil
 }
 

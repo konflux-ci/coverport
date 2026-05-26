@@ -76,7 +76,7 @@ func runDiscover(cmd *cobra.Command, args []string) {
 		exitWithError("Multiple discovery methods specified. Use only one of: --snapshot, --images, --label-selector, or --pods")
 	}
 
-	fmt.Println("🔍 coverport - Pod Discovery")
+	fmt.Println("coverport - Pod Discovery")
 	fmt.Println("─────────────────────────────")
 
 	// Setup Kubernetes client
@@ -101,11 +101,11 @@ func runDiscover(cmd *cobra.Command, args []string) {
 	}
 
 	if len(podsToCollect) == 0 {
-		fmt.Println("\n⚠️  No running pods found matching the criteria")
+		fmt.Println("\nWarning: No running pods found matching the criteria")
 		return
 	}
 
-	fmt.Printf("\n✅ Discovered %d pod(s):\n\n", len(podsToCollect))
+	fmt.Printf("\nDiscovered %d pod(s):\n\n", len(podsToCollect))
 
 	// Group by component
 	componentPods := make(map[string][]discovery.PodInfo)
@@ -114,7 +114,7 @@ func runDiscover(cmd *cobra.Command, args []string) {
 	}
 
 	for component, pods := range componentPods {
-		fmt.Printf("📦 Component: %s\n", component)
+		fmt.Printf("Component: %s\n", component)
 		for _, pod := range pods {
 			fmt.Printf("   • Pod: %s/%s\n", pod.Namespace, pod.Name)
 			fmt.Printf("     Container: %s\n", pod.ContainerName)
