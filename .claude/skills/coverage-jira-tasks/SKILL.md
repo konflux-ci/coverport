@@ -69,7 +69,7 @@ Many of these will already be in the user's message — extract what you can and
      1. Open the Google Sheets link
      2. File → Download → Comma Separated Values (.csv)
      3. Provide the downloaded file path (typically `~/Downloads/<filename>.csv`)
-     
+
      Only attempt `curl` export if the user explicitly says the sheet is publicly shared.
    - **Local CSV path**: Use directly
    - **No source mentioned**: Look for `*-audit.csv` files in the working directory. If none found, ask.

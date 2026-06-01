@@ -418,8 +418,8 @@ func TestDetectNYCSourcePrefix(t *testing.T) {
 		{
 			name: "common prefix from absolute paths",
 			data: NYCCoverageData{
-				"/app/src/index.js": &NYCFileCoverage{},
-				"/app/src/utils.js": &NYCFileCoverage{},
+				"/app/src/index.js":  &NYCFileCoverage{},
+				"/app/src/utils.js":  &NYCFileCoverage{},
 				"/app/lib/helper.js": &NYCFileCoverage{},
 			},
 			expected: "/app/",

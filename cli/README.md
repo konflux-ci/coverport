@@ -608,4 +608,3 @@ See LICENSE file in the repository root.
 ## Support
 
 For issues, questions, or feature requests, please open an issue in the GitHub repository.
-

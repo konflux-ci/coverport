@@ -8,10 +8,10 @@ import (
 
 func TestParseSnapshot(t *testing.T) {
 	tests := []struct {
-		name        string
-		json        string
-		wantCount   int
-		wantError   bool
+		name         string
+		json         string
+		wantCount    int
+		wantError    bool
 		wantCompName string
 	}{
 		{

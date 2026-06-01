@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 /**
  * Coverage HTTP Server Wrapper for Node.js
- * 
+ *
  * Compatible with openshift-eng/art-tools coverage protocol.
- * 
+ *
  * A pure wrapper that runs any Node.js script with coverage collection and
  * exposes coverage data via HTTP. Completely application-agnostic.
- * 
+ *
  * Multiple containers in a pod may each start a coverage server. The server
  * tries ports starting at COVERAGE_PORT (default 53700) and increments up to
  * MAX_RETRIES times until it finds a free port.
- * 
+ *
  * Clients can identify a coverage server via response headers:
  *   X-Art-Coverage-Server, X-Art-Coverage-Pid, X-Art-Coverage-Binary, etc.
- * 
+ *
  * Usage:
  *     node coverage_server.js app.js
  *     node coverage_server.js path/to/script.js
- * 
+ *
  * Environment Variables:
  *     COVERAGE_PORT - Starting port for coverage HTTP server (default: 53700)
  */
@@ -123,7 +123,7 @@ async function handleCoverageDump(req, res, label) {
       try {
         // Convert V8 coverage to Istanbul format (purely in-memory)
         const istanbulCoverage = await convertV8ToIstanbul(result);
-        
+
         const payload = {
           label,
           timestamp: new Date().toISOString(),
@@ -166,20 +166,20 @@ async function handleCoverageDump(req, res, label) {
  */
 async function convertV8ToIstanbul(v8Coverage) {
   const istanbulCoverage = {};
-  
+
   for (const script of v8Coverage) {
     // Skip scripts without URL or with unsupported URLs
     if (!script.url || script.url.startsWith('node:') || script.url.includes('node_modules')) {
       continue;
     }
-    
+
     // Skip server, client, and test files
-    if (script.url.includes('/server/') || 
-        script.url.includes('/client/') || 
+    if (script.url.includes('/server/') ||
+        script.url.includes('/client/') ||
         script.url.includes('/test/')) {
       continue;
     }
-    
+
     // Convert file:// URL to path
     let filePath;
     try {
@@ -187,23 +187,23 @@ async function convertV8ToIstanbul(v8Coverage) {
     } catch (e) {
       continue; // Skip if URL is not a file:// URL
     }
-    
+
     // Skip if file doesn't exist
     if (!existsSync(filePath)) {
       continue;
     }
-    
+
     try {
       // Create v8-to-istanbul converter
       const converter = v8ToIstanbul(filePath);
       await converter.load(); // Load source file
-      
+
       // Apply V8 coverage data
       converter.applyCoverage([{
         functionName: '',
         ranges: script.functions.flatMap(fn => fn.ranges || [])
       }]);
-      
+
       // Convert to Istanbul format
       const istanbul = converter.toIstanbul();
       Object.assign(istanbulCoverage, istanbul);
@@ -212,7 +212,7 @@ async function convertV8ToIstanbul(v8Coverage) {
       // Continue with other files
     }
   }
-  
+
   return istanbulCoverage;
 }
 
@@ -304,12 +304,12 @@ async function runAppWithCoverage(scriptPath) {
   // Start coverage using Inspector API (purely in-memory)
   coverageSession = new inspector.Session();
   coverageSession.connect();
-  
+
   // Enable Profiler and start precise coverage
   coverageSession.post('Profiler.enable', () => {
     coverageSession.post('Profiler.startPreciseCoverage', { callCount: true, detailed: true }, () => {
       console.log(`${PRINT_PREFIX} V8 coverage started via Inspector API (in-memory)`);
-      
+
       // Now import and run the app
       import(scriptPath).catch((error) => {
         console.error(`${PRINT_PREFIX} Error running application:`, error);
@@ -329,7 +329,7 @@ async function main() {
   }
 
   const scriptPath = resolve(process.argv[2]);
-  
+
   if (!existsSync(scriptPath)) {
     console.error(`${PRINT_PREFIX} Script not found: ${scriptPath}`);
     process.exit(1);
@@ -373,4 +373,3 @@ async function main() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }
-

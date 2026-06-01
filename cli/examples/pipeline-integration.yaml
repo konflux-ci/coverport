@@ -7,7 +7,7 @@ spec:
     - name: SNAPSHOT
       description: Application snapshot
       type: string
-  
+
   tasks:
     # 1. Deploy application
     - name: deploy-application
@@ -16,7 +16,7 @@ spec:
       params:
         - name: SNAPSHOT
           value: $(params.SNAPSHOT)
-    
+
     # 2. Run E2E tests
     - name: run-e2e-tests
       runAfter:
@@ -28,7 +28,7 @@ spec:
           value: $(tasks.deploy-application.results.APP_URL)
         - name: NAMESPACE
           value: $(tasks.deploy-application.results.NAMESPACE)
-    
+
     # 3. Collect coverage (runs even if tests fail)
     - name: collect-coverage
       runAfter:
@@ -52,7 +52,7 @@ spec:
             script: |
               #!/bin/sh
               set -eux
-              
+
               coverport collect \
                 --snapshot="$SNAPSHOT" \
                 --test-name="$TEST_NAME" \
@@ -62,14 +62,14 @@ spec:
                 --repository=myorg/coverage-artifacts \
                 --tag="$TEST_NAME-$(date +%Y%m%d-%H%M%S)" \
                 --verbose
-              
+
               echo "Coverage collection complete!"
       params:
         - name: SNAPSHOT
           value: $(params.SNAPSHOT)
         - name: TEST_NAME
           value: $(context.pipelineRun.name)
-    
+
     # 4. Process and report coverage (optional)
     - name: report-coverage
       runAfter:
@@ -79,7 +79,7 @@ spec:
       params:
         - name: COVERAGE_ARTIFACT_REF
           value: $(tasks.collect-coverage.results.COVERAGE_ARTIFACT_REF)
-    
+
     # 5. Cleanup
     - name: cleanup
       runAfter:
@@ -89,4 +89,3 @@ spec:
       params:
         - name: NAMESPACE
           value: $(tasks.deploy-application.results.NAMESPACE)
-

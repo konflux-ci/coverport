@@ -279,15 +279,15 @@ Potential additions (documented in ARCHITECTURE.md):
 
 ## Success Criteria Met
 
-✅ **Image-based discovery**: Find pods by container image reference  
-✅ **Multi-component support**: Handle multiple services automatically  
-✅ **Konflux integration**: Parse SNAPSHOT and write results  
-✅ **Organized output**: Separate directories per component  
-✅ **OCI push**: Push all coverage data to registry  
-✅ **Comprehensive docs**: README, quickstart, and architecture docs  
-✅ **Working binary**: Compiles and runs successfully  
-✅ **CI/CD ready**: Non-interactive, automation-friendly  
-✅ **Examples**: Tekton tasks and pipeline examples  
+✅ **Image-based discovery**: Find pods by container image reference
+✅ **Multi-component support**: Handle multiple services automatically
+✅ **Konflux integration**: Parse SNAPSHOT and write results
+✅ **Organized output**: Separate directories per component
+✅ **OCI push**: Push all coverage data to registry
+✅ **Comprehensive docs**: README, quickstart, and architecture docs
+✅ **Working binary**: Compiles and runs successfully
+✅ **CI/CD ready**: Non-interactive, automation-friendly
+✅ **Examples**: Tekton tasks and pipeline examples
 
 ## Quick Start for Users
 
@@ -323,4 +323,3 @@ open ./coverage-output/myapp/my-first-test-myapp/coverage.html
 ## License
 
 See LICENSE file in repository root.
-

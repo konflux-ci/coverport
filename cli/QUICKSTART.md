@@ -281,4 +281,3 @@ coverport collect --snapshot="$SNAPSHOT" --push --repository=REPO
 coverport --help
 coverport collect --help
 ```
-

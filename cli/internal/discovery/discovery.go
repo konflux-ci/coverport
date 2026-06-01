@@ -214,4 +214,3 @@ func isSystemNamespace(ns string) bool {
 
 	return false
 }
-

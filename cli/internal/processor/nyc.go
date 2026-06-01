@@ -11,13 +11,13 @@ import (
 
 // NYCFileCoverage represents Istanbul/NYC coverage data for a single file
 type NYCFileCoverage struct {
-	Path         string                       `json:"path"`
-	StatementMap map[string]NYCLocation       `json:"statementMap"`
-	FnMap        map[string]NYCFunctionInfo   `json:"fnMap"`
-	BranchMap    map[string]NYCBranchInfo     `json:"branchMap"`
-	S            map[string]int               `json:"s"`            // Statement counts
-	F            map[string]int               `json:"f"`            // Function counts
-	B            map[string][]int             `json:"b"`            // Branch counts
+	Path           string                     `json:"path"`
+	StatementMap   map[string]NYCLocation     `json:"statementMap"`
+	FnMap          map[string]NYCFunctionInfo `json:"fnMap"`
+	BranchMap      map[string]NYCBranchInfo   `json:"branchMap"`
+	S              map[string]int             `json:"s"` // Statement counts
+	F              map[string]int             `json:"f"` // Function counts
+	B              map[string][]int           `json:"b"` // Branch counts
 	InputSourceMap json.RawMessage            `json:"inputSourceMap,omitempty"`
 }
 
@@ -427,4 +427,3 @@ func copyFile(src, dst string) error {
 	}
 	return os.WriteFile(dst, data, 0644)
 }
-

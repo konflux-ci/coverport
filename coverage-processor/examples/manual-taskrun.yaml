@@ -24,13 +24,13 @@ spec:
   serviceAccountName: coverage-processor-sa
   taskRef:
     name: coverage-task
-  
+
   params:
   - name: coverage-artifact-ref
     # REQUIRED: Replace with your actual coverage artifact reference
     # Format: quay.io/<org>/<repo>:<tag>
     # Example: quay.io/psturc/coverage-artifacts:e2e-coverage-20251110_0959
     value: "__COVERAGE_ARTIFACT_REF__"
-  
+
   # Optional: Set timeout (default is 1 hour)
   timeout: "30m"

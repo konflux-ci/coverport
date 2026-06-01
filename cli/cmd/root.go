@@ -56,4 +56,3 @@ func printSuccess(format string, args ...interface{}) {
 func printWarning(format string, args ...interface{}) {
 	fmt.Printf("Warning: "+format+"\n", args...)
 }
-

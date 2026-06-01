@@ -26,7 +26,7 @@ spec:
             value: main
           - name: pathInRepo
             value: tasks/test-metadata/0.1/test-metadata.yaml
-    
+
     - name: deploy
       runAfter:
         - test-metadata
@@ -48,7 +48,7 @@ spec:
             script: |
               #!/bin/sh
               set -eux
-              
+
               # (deployment logic same as before)
               # ...
 
@@ -74,14 +74,14 @@ spec:
             script: |
               #!/bin/sh
               set -eux
-              
+
               # Login to cluster
               eval $OC_LOGIN_COMMAND
-              
+
               # Run tests (your test suite here)
               echo "Running E2E tests..."
               # ... run your tests ...
-              
+
               # Collect coverage using coverport
               coverport collect \
                 --snapshot="$SNAPSHOT" \
@@ -92,7 +92,7 @@ spec:
                 --registry=quay.io \
                 --repository=myorg/coverage-artifacts \
                 --verbose
-              
+
               # Save artifact reference for next task
               if [ -f /workspace/coverage-artifact-ref.txt ]; then
                 cat /workspace/coverage-artifact-ref.txt > /tekton/results/COVERAGE_ARTIFACT_REF
@@ -120,15 +120,15 @@ spec:
             script: |
               #!/bin/sh
               set -eux
-              
+
               if [ "$COVERAGE_ARTIFACT_REF" = "not-available" ]; then
                 echo "Warning: No coverage artifact available, skipping"
                 exit 0
               fi
-              
+
               # Extract component image from snapshot
               COMPONENT_IMAGE=$(echo "$SNAPSHOT" | jq -r '.components[0].containerImage')
-              
+
               # Process coverage with a single command!
               # This replaces 5 complex bash script steps with one command
               coverport process \
@@ -138,7 +138,7 @@ spec:
                 --codecov-flags=e2e-tests \
                 --workspace=/workspace/process \
                 --verbose
-              
+
               echo "Coverage processed and uploaded!"
 
     - name: cleanup
@@ -161,4 +161,3 @@ spec:
               set -eux
               eval $OC_LOGIN_COMMAND
               oc delete namespace $APP_NAMESPACE --wait=false || true
-

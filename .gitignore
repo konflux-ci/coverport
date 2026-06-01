@@ -1,0 +1,64 @@
+# Agent readiness reports (contain local paths)
+.agentready/
+
+# Binaries
+coverport
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+
+# Build output
+*.out
+coverage-output/
+*.log
+dist/
+bin/
+
+# Go
+go.work
+go.work.sum
+vendor/
+*.prof
+debug
+debug.test
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Node (if instrumentation tests are added)
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.coverage
+htmlcov/
+*.egg-info/
+.env
+.venv/
+venv/
+
+# Config secrets
+config.env
+*.yaml.bak
+*.tmp
+sonar-token.yaml
+
+# Docker
+*.tar

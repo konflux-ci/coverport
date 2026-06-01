@@ -77,6 +77,20 @@ jobs:
           files: instrumentation/go/coverage.out
           fail_ci_if_error: false
 
+  check-agents-md:
+    name: Check AGENTS.md line limit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check AGENTS.md line limit
+        run: |
+          LINES=$(wc -l < AGENTS.md)
+          if [ "$LINES" -gt 60 ]; then
+            echo "ERROR: AGENTS.md exceeds 60-line limit ($LINES lines)"
+            exit 1
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

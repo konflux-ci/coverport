@@ -48,7 +48,7 @@ func (e *ImageMetadataExtractor) ExtractGitMetadata(ctx context.Context, image s
 
 	// Parse the attestation JSON - handle both single object and array
 	var attestation map[string]interface{}
-	
+
 	// Try to parse as array first
 	var attestations []map[string]interface{}
 	if err := json.Unmarshal(output, &attestations); err == nil && len(attestations) > 0 {
@@ -171,11 +171,11 @@ func extractPRNumber(annotations map[string]interface{}, branch string) string {
 	// Common annotations that might contain PR info:
 	// - pipelinesascode.tekton.dev/pull-request
 	// - build.appstudio.redhat.com/pull_request_number
-	
+
 	if prNum, ok := annotations["pipelinesascode.tekton.dev/pull-request"].(string); ok && prNum != "" {
 		return prNum
 	}
-	
+
 	if prNum, ok := annotations["build.appstudio.redhat.com/pull_request_number"].(string); ok && prNum != "" {
 		return prNum
 	}
@@ -200,7 +200,7 @@ func extractPRNumber(annotations map[string]interface{}, branch string) string {
 				}
 			}
 		}
-		
+
 		// GitLab/custom style: pr-123 or pr/123
 		if strings.HasPrefix(branch, "pr-") {
 			prNum := strings.TrimPrefix(branch, "pr-")
@@ -231,4 +231,3 @@ func isNumeric(s string) bool {
 	}
 	return true
 }
-

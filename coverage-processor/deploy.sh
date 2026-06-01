@@ -102,7 +102,7 @@ if [ -z "$SMEE_CHANNEL_URL" ]; then
     echo "Get a channel from: https://smee.io/new"
     echo ""
     read -p "Enter your Smee.io channel URL (e.g., https://smee.io/abc123): " SMEE_CHANNEL_URL
-    
+
     if [ -z "$SMEE_CHANNEL_URL" ]; then
         print_error "Smee.io channel URL is required"
         exit 1
@@ -119,7 +119,7 @@ if [ -z "$SONAR_TOKEN" ]; then
     echo "Get your token from: https://sonarcloud.io/account/security"
     echo ""
     read -p "Enter your SonarCloud token (or press Enter to configure later): " SONAR_TOKEN
-    
+
     if [ -z "$SONAR_TOKEN" ]; then
         print_warning "Will skip secret creation. You must create it manually before running tasks."
         SKIP_SECRET=true

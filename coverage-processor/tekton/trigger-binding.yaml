@@ -11,6 +11,3 @@ spec:
   params:
   - name: coverage-artifact-ref
     value: $(extensions.coverage_artifact_ref)
-
-
-

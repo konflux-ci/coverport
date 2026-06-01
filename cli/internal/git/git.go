@@ -56,24 +56,24 @@ func (c *RepositoryCloner) Clone(ctx context.Context, opts CloneOptions) error {
 
 	// Clone arguments
 	args := []string{"clone"}
-	
+
 	// Add shallow clone if depth is specified
 	if opts.Depth > 0 {
 		args = append(args, "--depth", fmt.Sprintf("%d", opts.Depth))
 	}
-	
+
 	// Add branch if specified
 	if opts.Branch != "" {
 		args = append(args, "--branch", opts.Branch)
 	}
-	
+
 	args = append(args, opts.RepoURL, opts.TargetDir)
 
 	// Execute clone
 	cmd := exec.CommandContext(ctx, c.gitPath, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
@@ -81,7 +81,7 @@ func (c *RepositoryCloner) Clone(ctx context.Context, opts CloneOptions) error {
 	// Checkout specific commit if different from HEAD
 	if opts.CommitSHA != "" {
 		fmt.Printf("Checking out commit: %s\n", opts.CommitSHA)
-		
+
 		// First, we might need to fetch if this is a shallow clone
 		if opts.Depth > 0 {
 			fmt.Println("   Fetching commit (shallow clone)...")
@@ -99,18 +99,18 @@ func (c *RepositoryCloner) Clone(ctx context.Context, opts CloneOptions) error {
 				}
 			}
 		}
-		
+
 		checkoutCmd := exec.CommandContext(ctx, c.gitPath, "-C", opts.TargetDir, "checkout", opts.CommitSHA)
 		checkoutCmd.Stdout = os.Stdout
 		checkoutCmd.Stderr = os.Stderr
-		
+
 		if err := checkoutCmd.Run(); err != nil {
 			return fmt.Errorf("failed to checkout commit: %w", err)
 		}
 	}
 
 	fmt.Println("Repository cloned successfully")
-	
+
 	// Show some info about the cloned repo
 	if err := c.ShowInfo(ctx, opts.TargetDir); err != nil {
 		fmt.Printf("Warning: Failed to show repo info: %v\n", err)
@@ -127,21 +127,21 @@ func (c *RepositoryCloner) ShowInfo(ctx context.Context, repoDir string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("   Current commit: %s", string(output))
-	
+
 	// Check for go.mod
 	goModPath := filepath.Join(repoDir, "go.mod")
 	if _, err := os.Stat(goModPath); err == nil {
 		fmt.Println("   Language: Go (go.mod found)")
 	}
-	
+
 	// Check for package.json
 	packageJSONPath := filepath.Join(repoDir, "package.json")
 	if _, err := os.Stat(packageJSONPath); err == nil {
 		fmt.Println("   Language: Node.js (package.json found)")
 	}
-	
+
 	// Check for requirements.txt or setup.py
 	requirementsPath := filepath.Join(repoDir, "requirements.txt")
 	setupPyPath := filepath.Join(repoDir, "setup.py")
@@ -150,7 +150,6 @@ func (c *RepositoryCloner) ShowInfo(ctx context.Context, repoDir string) error {
 	} else if _, err := os.Stat(setupPyPath); err == nil {
 		fmt.Println("   Language: Python (setup.py found)")
 	}
-	
+
 	return nil
 }
-

@@ -30,11 +30,11 @@ spec:
       description: OCI repository for coverage artifacts
       type: string
       default: "myorg/coverage-artifacts"
-  
+
   results:
     - name: COVERAGE_ARTIFACT_REF
       description: Reference to the pushed coverage artifact
-  
+
   steps:
     - name: collect-coverage
       image: quay.io/myorg/coverport:latest
@@ -56,11 +56,11 @@ spec:
       script: |
         #!/bin/sh
         set -eux
-        
+
         echo "Starting coverage collection..."
         echo "Snapshot: $SNAPSHOT"
         echo "Test Name: $TEST_NAME"
-        
+
         # Build coverport command
         CMD="coverport collect \
           --snapshot=\"$SNAPSHOT\" \
@@ -68,7 +68,7 @@ spec:
           --port=\"$COVERAGE_PORT\" \
           --output=/workspace/coverage-output \
           --verbose"
-        
+
         # Add push options if enabled
         if [ "$PUSH_ARTIFACT" = "true" ]; then
           TAG="coverage-${TEST_NAME}-$(date +%Y%m%d-%H%M%S)"
@@ -77,15 +77,14 @@ spec:
             --repository=\"$REPOSITORY\" \
             --tag=\"$TAG\""
         fi
-        
+
         # Execute coverage collection
         eval $CMD
-        
+
         echo "Coverage collection complete!"
-        
+
         # Show artifact reference if available
         if [ -f "$(results.COVERAGE_ARTIFACT_REF.path)" ]; then
           ARTIFACT_REF=$(cat $(results.COVERAGE_ARTIFACT_REF.path))
           echo "Coverage artifact: $ARTIFACT_REF"
         fi
-

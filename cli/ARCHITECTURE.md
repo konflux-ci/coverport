@@ -456,4 +456,3 @@ See main project CONTRIBUTING.md for guidelines.
 - [py-coverage-http](https://github.com/psturc/py-coverage-http) - Python coverage HTTP server
 - Cobra documentation: https://cobra.dev/
 - Kubernetes client-go: https://github.com/kubernetes/client-go
-

@@ -75,4 +75,3 @@ help:
 	@echo "  docker-push   - Build and push Docker image"
 	@echo "  dev-build     - Build with race detector"
 	@echo "  run           - Build and run"
-

@@ -310,14 +310,14 @@ View: https://sonarcloud.io/dashboard?id=psturc_go-coverage-http
 
 ### What Was Validated
 
-✅ **OCI Artifact Extraction** - ORAS CLI successfully pulled from Quay.io  
-✅ **Metadata Parsing** - Extracted app image from `metadata.json`  
-✅ **Attestation Verification** - cosign retrieved SLSA provenance  
-✅ **Git Metadata Extraction** - Parsed Konflux annotations  
-✅ **Repository Cloning** - Git clone at specific commit  
-✅ **Secret Management** - Fetched token from Kubernetes secret  
-✅ **Coverage Remapping** - `go tool covdata` converted paths  
-✅ **SonarCloud Integration** - Successful upload with commit context  
+✅ **OCI Artifact Extraction** - ORAS CLI successfully pulled from Quay.io
+✅ **Metadata Parsing** - Extracted app image from `metadata.json`
+✅ **Attestation Verification** - cosign retrieved SLSA provenance
+✅ **Git Metadata Extraction** - Parsed Konflux annotations
+✅ **Repository Cloning** - Git clone at specific commit
+✅ **Secret Management** - Fetched token from Kubernetes secret
+✅ **Coverage Remapping** - `go tool covdata` converted paths
+✅ **SonarCloud Integration** - Successful upload with commit context
 
 ## 🎯 Current POC Scope
 
@@ -465,7 +465,7 @@ oc get task coverage-task -n coverage-processor
 
 ### Why Single TaskRun Instead of Pipeline?
 
-**Initial approach**: Pipeline with 2 Tasks + PVC workspace  
+**Initial approach**: Pipeline with 2 Tasks + PVC workspace
 **Current approach**: Single Task with 6 Steps + emptyDir volume
 
 **Benefits:**

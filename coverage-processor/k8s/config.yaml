@@ -13,6 +13,3 @@ stringData:
   # Get your token from: https://sonarcloud.io/account/security
   SONAR_TOKEN: "your-sonarcloud-token-here"
   SONAR_HOST_URL: "https://sonarcloud.io"
-
-
-

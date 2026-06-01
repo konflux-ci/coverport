@@ -58,16 +58,16 @@ func (m *CollectionManifest) AddComponent(component ComponentInfo) {
 // Save writes the manifest to a file
 func (m *CollectionManifest) Save(outputDir string) error {
 	manifestPath := filepath.Join(outputDir, "metadata.json")
-	
+
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
-	
+
 	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
-	
+
 	fmt.Printf("Collection manifest saved: %s\n", manifestPath)
 	return nil
 }
@@ -75,17 +75,17 @@ func (m *CollectionManifest) Save(outputDir string) error {
 // Load reads a manifest from a file
 func Load(coverageDir string) (*CollectionManifest, error) {
 	manifestPath := filepath.Join(coverageDir, "metadata.json")
-	
+
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read manifest: %w", err)
 	}
-	
+
 	var manifest CollectionManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	
+
 	return &manifest, nil
 }
 
@@ -95,4 +95,3 @@ func Exists(coverageDir string) bool {
 	_, err := os.Stat(manifestPath)
 	return err == nil
 }
-

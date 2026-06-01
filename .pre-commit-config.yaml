@@ -1,0 +1,38 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: go-fmt-cli
+        name: gofmt (cli)
+        entry: bash -c 'cd cli && gofmt -l -w .'
+        language: system
+        files: ^cli/.*\.go$
+        pass_filenames: false
+      - id: go-fmt-instrumentation
+        name: gofmt (instrumentation/go)
+        entry: bash -c 'cd instrumentation/go && gofmt -l -w .'
+        language: system
+        files: ^instrumentation/go/.*\.go$
+        pass_filenames: false
+      - id: go-vet-cli
+        name: go vet (cli)
+        entry: bash -c 'cd cli && go vet ./...'
+        language: system
+        files: ^cli/.*\.go$
+        pass_filenames: false
+      - id: go-vet-instrumentation
+        name: go vet (instrumentation/go)
+        entry: bash -c 'cd instrumentation/go && go vet ./...'
+        language: system
+        files: ^instrumentation/go/.*\.go$
+        pass_filenames: false

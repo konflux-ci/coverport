@@ -6,6 +6,3 @@ metadata:
   labels:
     app: coverage
     component: processor
-
-
-

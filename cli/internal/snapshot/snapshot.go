@@ -65,4 +65,3 @@ func (s *Snapshot) GetComponentByImage(image string) *Component {
 	}
 	return nil
 }
-

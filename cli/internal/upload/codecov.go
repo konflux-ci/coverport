@@ -13,8 +13,8 @@ import (
 
 // CodecovUploader handles uploading coverage to Codecov
 type CodecovUploader struct {
-	token        string
-	codecovPath  string
+	token         string
+	codecovPath   string
 	downloadedCLI bool
 }
 
@@ -107,7 +107,7 @@ func (u *CodecovUploader) ensureCodecovCLI(ctx context.Context) error {
 
 	u.codecovPath = codecovPath
 	u.downloadedCLI = true
-	
+
 	fmt.Printf("Codecov CLI downloaded to: %s\n", codecovPath)
 	return nil
 }
@@ -198,4 +198,3 @@ func (u *CodecovUploader) Cleanup() {
 		os.Remove(u.codecovPath)
 	}
 }
-
