@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:9.8-1779959429 AS builder
+FROM registry.access.redhat.com/ubi9/go-toolset:9.8-1780373831 AS builder
 
 WORKDIR /workspace
 
