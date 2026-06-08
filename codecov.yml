@@ -12,7 +12,7 @@ coverage:
         target: auto
     patch:
       default:
-        target: auto
+        target: 80%
 
 parsers:
   go:
