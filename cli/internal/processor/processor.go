@@ -16,6 +16,7 @@ const (
 	FormatGo     CoverageFormat = "go"
 	FormatPython CoverageFormat = "python"
 	FormatNYC    CoverageFormat = "nyc"
+	FormatRust   CoverageFormat = "rust"
 	FormatAuto   CoverageFormat = "auto"
 )
 
@@ -52,6 +53,7 @@ func DetectFormat(inputDir string) (CoverageFormat, error) {
 	hasGoCoverage := false
 	hasPythonCoverage := false
 	hasNYCCoverage := false
+	hasRustCoverage := false
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -59,6 +61,11 @@ func DetectFormat(inputDir string) (CoverageFormat, error) {
 		// Check for Go coverage
 		if strings.HasPrefix(name, "covmeta.") || strings.HasPrefix(name, "covcounters.") {
 			hasGoCoverage = true
+		}
+
+		// Check for Rust/LLVM coverage (.profraw files)
+		if strings.HasSuffix(name, ".profraw") {
+			hasRustCoverage = true
 		}
 
 		// Check for Python coverage (.coverage or .coverage_*)
@@ -74,6 +81,9 @@ func DetectFormat(inputDir string) (CoverageFormat, error) {
 
 	if hasGoCoverage {
 		return FormatGo, nil
+	}
+	if hasRustCoverage {
+		return FormatRust, nil
 	}
 	if hasPythonCoverage {
 		return FormatPython, nil
@@ -104,6 +114,8 @@ func (p *CoverageProcessor) Process(ctx context.Context, opts ProcessOptions) er
 		return p.processPythonCoverage(ctx, opts)
 	case FormatNYC:
 		return p.processNYCCoverage(ctx, opts)
+	case FormatRust:
+		return p.processRustCoverage(ctx, opts)
 	default:
 		return fmt.Errorf("unsupported coverage format: %s", format)
 	}
