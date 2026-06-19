@@ -732,3 +732,225 @@ func TestDetectCoveragePort_ExecFailure(t *testing.T) {
 // 		t.Error("Expected error for missing coverage file")
 // 	}
 // }
+
+func TestDetectCoverageFormat_Rust(t *testing.T) {
+	client := &CoverageClient{}
+
+	body := []byte(`{"profraw_filename":"default_123.profraw","profraw_data":"AAAA","profraw_size":3,"timestamp":1234567890,"coverage_enabled":true}`)
+	format := client.detectCoverageFormat(body)
+	if format != FormatRust {
+		t.Errorf("expected FormatRust, got %q", format)
+	}
+}
+
+func TestDetectCoverageFormat_Go(t *testing.T) {
+	client := &CoverageClient{}
+
+	body := []byte(`{"meta_data":"abc","counters_data":"def"}`)
+	format := client.detectCoverageFormat(body)
+	if format != FormatGo {
+		t.Errorf("expected FormatGo, got %q", format)
+	}
+}
+
+func TestDetectCoverageFormat_Python(t *testing.T) {
+	client := &CoverageClient{}
+
+	body := []byte(`{"coverage_data":"base64stuff","format":"python"}`)
+	format := client.detectCoverageFormat(body)
+	if format != FormatPython {
+		t.Errorf("expected FormatPython, got %q", format)
+	}
+}
+
+func TestCollectRustCoverage(t *testing.T) {
+	profrawContent := []byte("fake profraw binary data for testing")
+	encodedData := base64.StdEncoding.EncodeToString(profrawContent)
+
+	response := RustCoverageResponse{
+		ProfrawFilename: "default_12345.profraw",
+		ProfrawData:     encodedData,
+		ProfrawSize:     len(profrawContent),
+		Timestamp:       1234567890,
+		CoverageEnabled: true,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	client := &CoverageClient{
+		outputDir:  tempDir,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify file was created
+	profrawPath := filepath.Join(tempDir, "rust-test", "default_12345.profraw")
+	data, err := os.ReadFile(profrawPath)
+	if err != nil {
+		t.Fatalf("profraw file not created: %v", err)
+	}
+
+	if string(data) != string(profrawContent) {
+		t.Errorf("profraw content mismatch.\nExpected: %q\nGot:      %q", profrawContent, data)
+	}
+}
+
+func TestCollectRustCoverage_CoverageDisabled(t *testing.T) {
+	response := RustCoverageResponse{
+		ProfrawFilename: "default_12345.profraw",
+		ProfrawData:     "",
+		CoverageEnabled: false,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	client := &CoverageClient{
+		outputDir:  tempDir,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	if err == nil {
+		t.Fatal("expected error when coverage is disabled")
+	}
+	if !strings.Contains(err.Error(), "coverage not enabled") {
+		t.Errorf("expected 'coverage not enabled' error, got: %v", err)
+	}
+}
+
+func TestCollectRustCoverage_EmptyProfrawData(t *testing.T) {
+	response := RustCoverageResponse{
+		ProfrawFilename: "default_12345.profraw",
+		ProfrawData:     "",
+		CoverageEnabled: true,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	client := &CoverageClient{
+		outputDir:  tempDir,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	if err == nil {
+		t.Fatal("expected error for empty profraw data")
+	}
+	if !strings.Contains(err.Error(), "no profraw data") {
+		t.Errorf("expected 'no profraw data' error, got: %v", err)
+	}
+}
+
+func TestCollectRustCoverage_InvalidBase64(t *testing.T) {
+	response := RustCoverageResponse{
+		ProfrawFilename: "default_12345.profraw",
+		ProfrawData:     "this-is-not-valid-base64!@#$%",
+		ProfrawSize:     100,
+		CoverageEnabled: true,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	client := &CoverageClient{
+		outputDir:  tempDir,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	if err == nil {
+		t.Fatal("expected error for invalid base64 data")
+	}
+	if !strings.Contains(err.Error(), "decode Rust profraw data") {
+		t.Errorf("expected decode error, got: %v", err)
+	}
+}
+
+func TestCollectRustCoverage_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Response contains profraw_data to trigger Rust format detection, but is invalid JSON
+		w.Write([]byte(`{"profraw_data": invalid json`))
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	client := &CoverageClient{
+		outputDir:  tempDir,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response")
+	}
+	if !strings.Contains(err.Error(), "decode Rust coverage response") {
+		t.Errorf("expected decode error, got: %v", err)
+	}
+}
+
+func TestCollectRustCoverage_LargePayload(t *testing.T) {
+	// Simulate a realistic profraw payload (1MB of data)
+	profrawContent := make([]byte, 1024*1024)
+	for i := range profrawContent {
+		profrawContent[i] = byte(i % 256)
+	}
+	encodedData := base64.StdEncoding.EncodeToString(profrawContent)
+
+	response := RustCoverageResponse{
+		ProfrawFilename: "large_coverage.profraw",
+		ProfrawData:     encodedData,
+		ProfrawSize:     len(profrawContent),
+		Timestamp:       1234567890,
+		CoverageEnabled: true,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	client := &CoverageClient{
+		outputDir:  tempDir,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+	}
+
+	err := client.CollectCoverageFromURL(server.URL, "large-test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	profrawPath := filepath.Join(tempDir, "large-test", "large_coverage.profraw")
+	info, err := os.Stat(profrawPath)
+	if err != nil {
+		t.Fatalf("profraw file not created: %v", err)
+	}
+	if info.Size() != int64(len(profrawContent)) {
+		t.Errorf("file size mismatch: got %d, want %d", info.Size(), len(profrawContent))
+	}
+}

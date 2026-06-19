@@ -105,7 +105,7 @@ func init() {
 	collectCmd.Flags().StringVar(&testName, "test-name", "", "Test name (default: auto-generated)")
 	collectCmd.Flags().StringVar(&sourceDir, "source-dir", ".", "Source directory for path remapping")
 	collectCmd.Flags().BoolVar(&enableRemap, "remap-paths", true, "Enable automatic path remapping")
-	collectCmd.Flags().StringSliceVar(&filters, "filters", []string{"coverage_server.go"}, "File patterns to filter from coverage")
+	collectCmd.Flags().StringSliceVar(&filters, "filters", []string{"coverage_server"}, "File patterns to filter from coverage")
 
 	// Processing options
 	collectCmd.Flags().BoolVar(&autoProcess, "auto-process", true, "Automatically process coverage reports")

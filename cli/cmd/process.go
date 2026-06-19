@@ -100,7 +100,7 @@ func init() {
 	processCmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Keep workspace directory after processing")
 
 	// Coverage processing options
-	processCmd.Flags().StringVar(&coverageFormat, "format", "auto", "Coverage format: go, python, nyc, auto")
+	processCmd.Flags().StringVar(&coverageFormat, "format", "auto", "Coverage format: go, python, nyc, rust, auto")
 	processCmd.Flags().StringSliceVar(&coverageFilters, "filters", []string{"coverage_server.go", "*_test.go"}, "File patterns to exclude from coverage")
 	processCmd.Flags().BoolVar(&generateHTML, "generate-html", false, "Generate HTML coverage report (requires source code)")
 
@@ -497,6 +497,8 @@ func processCoverage(ctx context.Context, inputDir, outputFile, repoRoot string,
 		format = processor.FormatPython
 	case "nyc":
 		format = processor.FormatNYC
+	case "rust":
+		format = processor.FormatRust
 	case "auto":
 		format = processor.FormatAuto
 	default:
