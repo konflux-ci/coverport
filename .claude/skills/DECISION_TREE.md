@@ -2,7 +2,11 @@
 
 ```mermaid
 graph TD
-    A[User wants code coverage] --> B{What type of tests?}
+    A[User wants code coverage] --> AA{What do they need?}
+
+    AA -->|Just add .codecov.yml config| AB[add-codecov-yml]
+    AA -->|Full CI onboarding| B{What type of tests?}
+    AA -->|Track rollout progress| AC[refresh-codecov-sheet]
 
     B -->|Unit / Integration| C[codecov-onboarding]
     B -->|E2E containerized app| D[coverport-integration]
