@@ -42,12 +42,23 @@ If a config file exists, **do not create a new one**. Instead, validate it again
 
 | Rule | Check | Pass | Fail |
 |------|-------|------|------|
-| CI gate | `codecov.require_ci_to_pass` | `false` | missing or `true` |
+| CI gate | `codecov.require_ci_to_pass` | `false` or `true` (any explicit value) | missing |
 | Patch threshold | `coverage.status.patch.default.target` | `>= 80%` | missing or below `80%` |
+
+**Note on `require_ci_to_pass`:** If a team has explicitly set `require_ci_to_pass: true`, **leave it as `true`**. Only set it to `false` when the field is missing entirely. Teams that chose `true` did so intentionally.
 
 Parse the existing file and run both checks. Report results to the user:
 - **Both pass**: report "Codecov config is compliant" and stop — no PR needed.
 - **Any fail**: show what's non-compliant, fix the values in-place, and open a PR with the fix (see step 4). Use commit message `Fix .codecov.yml compliance` and PR title `Fix .codecov.yml: disable CI gate and enforce minimum coverage threshold`.
+
+**IMPORTANT — Preserve existing sections.** When rewriting the config, carry forward these blocks verbatim from the original file if they exist:
+- **`codecov.require_ci_to_pass`** — if set to `true`, keep it `true`
+- **`ignore:`** — excluded paths (generated files, mocks, vendor dirs, test data)
+- **`flags:`** — flag definitions with `carryforward: true` and `paths` filters
+- **YAML comments** — inline comments (`# generated file`), section comments (`# Allows coverage to drop...`), and documentation links (`# Documentation: https://...`)
+- **File-level comments** — license headers (e.g. ASF/Apache headers) at the top of the file
+
+Teams set these intentionally. Do not remove or modify them.
 
 ### 3. Generate `.codecov.yml`
 
