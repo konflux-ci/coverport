@@ -1,17 +1,19 @@
 ---
 name: coverage-audit
-description: Audit a GitHub/GitLab organization's repositories for code coverage status. Generates CSV spreadsheet showing which repos have tests, Codecov integration, and what's missing. Use when user asks to audit an org, create a coverage spreadsheet, or assess coverage gaps across repositories.
+description: Audit a GitHub/GitLab organization's repositories for code coverage status. Generates CSV spreadsheet showing which repos have tests, Codecov integration, and what's missing. Use when user asks to audit an org, create a coverage spreadsheet, or assess coverage gaps across repositories. Also works with pre-existing repo lists (JSON, CSV, text files) spanning multiple orgs/groups.
 ---
 
 # Coverage Audit Skill
 
-Scan GitHub/GitLab org → produce CSV with coverage status per repo.
+Scan GitHub/GitLab org (or a pre-existing repo list) → produce CSV with coverage status per repo.
 
 ## When to Use
 
 - User asks to audit a GitHub/GitLab org for coverage
 - User wants a spreadsheet of repos with test/Codecov status
 - User needs to identify coverage gaps across an organization
+- User has a file (JSON, CSV, text) listing repos to audit instead of a whole org
+- User wants to audit repos from a self-hosted GitLab instance
 
 ## Important: You Execute Everything
 
@@ -56,6 +58,23 @@ Rules:
   Create at `https://gitlab.com/-/user_settings/personal_access_tokens`
   (or equivalent for self-hosted GitLab)
 - **Self-hosted GitLab**: Use `https://<host>/api/v4/` as the API base
+- **Token discovery order** (try each in order, use first found):
+  1. `GITLAB_TOKEN` or `GITLAB_PERSONAL_ACCESS_TOKEN` env var
+  2. MCP server config in `~/.claude/settings.json` — look for a GitLab MCP server entry:
+     ```python
+     import json, os
+     with open(os.path.expanduser("~/.claude/settings.json")) as f:
+         cfg = json.load(f)
+     for name, server in cfg.get("mcpServers", {}).items():
+         env = server.get("env", {})
+         token = env.get("GITLAB_PERSONAL_ACCESS_TOKEN") or env.get("GITLAB_TOKEN")
+         gitlab_url = env.get("GITLAB_URL")  # e.g., "https://gitlab.cee.redhat.com"
+         if token:
+             break
+     ```
+  3. Ask the user directly as last resort
+- **SSL certificate issues**: Self-hosted GitLab instances often use internal CAs. If `urllib` raises SSL errors, create a permissive SSL context (`ssl.CERT_NONE`). Check MCP config for `NODE_TLS_REJECT_UNAUTHORIZED=0` as a signal. Warn the user when disabling SSL verification.
+- **MCP tool fallback**: Do NOT rely on GitLab MCP tools being connected — they may be unavailable to the session or to subagents. Always use direct API calls via `urllib.request` as the primary approach. MCP tools are a convenience, not a dependency.
 
 ## Instructions
 
@@ -69,6 +88,38 @@ Ask user:
 
 If platform is GitHub Enterprise or self-hosted GitLab, also ask for the instance URL.
 
+### Step 1b: Alternative Repo Sources (Repo List Mode)
+
+If the user already has a list of repos (instead of a whole org to scan), use **repo list mode** — skip API pagination and scan from the list directly.
+
+**Supported formats:**
+
+1. **Team JSON config files** (e.g., `containers/dashboard/teams/*.json`):
+   ```json
+   {
+     "sources": [{
+       "type": "gitrepos",
+       "repos": [
+         {"id": "repo-id", "type": "gitlab", "owner": "group/subgroup", "name": "project-name"},
+         {"id": "repo-id", "type": "github", "owner": "org-name", "name": "repo-name"}
+       ]
+     }]
+   }
+   ```
+   - Filter by `type` field: `"gitlab"` or `"github"`
+   - Full path for GitLab = `owner + "/" + name`
+   - URL = `https://{gitlab_host}/{owner}/{name}`
+   - Deduplicate by `(type, owner, name)` across multiple files
+
+2. **CSV file** — expect columns like `repo_url` or `owner,name` or `full_path`
+3. **Plain text** — one repo URL or `owner/name` per line
+
+**Pattern**: Read list → look up each project via `GET /projects/{url_encoded_full_path}` → scan each. The per-repo scan logic (tree fetch, test detection, Codecov detection) is identical to org-scan mode.
+
+URL-encode the full path: `urllib.parse.quote("group/subgroup/project", safe="")` → `group%2Fsubgroup%2Fproject`.
+
+**Output naming**: Derive from input source (e.g., `sre-audit.csv` from `teams/sre.json`), or ask user.
+
 ### Step 2: Write and Run Audit Script
 
 Create a Python script that:
@@ -76,6 +127,7 @@ Create a Python script that:
 1. **Fetches all repos** via platform API with pagination
    - **GitHub**: `GET /orgs/{org}/repos?per_page=100&page=N` — follow `Link` header or increment page until empty response
    - **GitLab**: `GET /groups/{group}/projects?per_page=100&page=N&include_subgroups=true` — follow `X-Next-Page` header
+   - **GitLab (single project)**: `GET /projects/{url_encoded_path}` — use `urllib.parse.quote("group/project", safe="")` for path encoding
 2. **Detect default branch** per repo — use `default_branch` field from API response (do NOT hardcode `main` or `master`)
 3. **For each repo**, collects:
    - Basic metadata: name, URL, language, stars, fork/archived status, description
@@ -88,6 +140,16 @@ Create a Python script that:
    **API efficiency:** Fetch the recursive tree ONCE per repo. Extract workflow paths, test file paths, CI indicators, and language hints all from the same tree response. Cache workflow file contents when fetched for test detection and reuse for Codecov detection — do NOT fetch the same file twice.
 
    **Language inference:** When GitHub API returns `null` for language, infer from file extensions in the tree (e.g., `*.go` → Go, `*.py` → Python, `*.ts` → TypeScript). Use the most common extension. This prevents repos with code from being misclassified as no-language.
+
+   **GitLab API endpoints** (all under `https://{host}/api/v4`):
+   - **Repository tree**: `GET /projects/{id}/repository/tree?recursive=true&ref={default_branch}&per_page=100` — returns file paths for test/CI detection. Use project numeric `id` (from project lookup) or URL-encoded path.
+   - **File content**: `GET /projects/{id}/repository/files/{url_encoded_filepath}/raw?ref={default_branch}` — encode filepath with `urllib.parse.quote(filepath, safe="")`.
+   - **Languages**: `GET /projects/{id}/languages` — returns `{"Go": 65.3, "Python": 34.7}`. More reliable than tree-based inference.
+   - **Contributors**: `GET /projects/{id}/repository/contributors?order_by=commits&sort=desc&per_page=3` — returns `[{"name": "...", "email": "...", "commits": N}]`.
+   - **URL encoding**: Always encode project paths with `urllib.parse.quote(path, safe="")`. Slashes MUST be encoded as `%2F`.
+   - **Auth header**: Use `Private-Token: {token}` (NOT `Authorization: Bearer`).
+   - **Pagination**: `X-Next-Page` header (empty string = no more pages), `X-Total-Pages` for progress display.
+
 4. **Writes CSV** sorted by repo name
 5. **Saves progress** to `<org>-audit-progress.json` every 10 repos (enables resume on interruption)
 
