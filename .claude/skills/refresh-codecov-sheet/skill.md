@@ -31,7 +31,7 @@ Scan column I (index 8) for non-empty cells that contain `github.com`. Extract t
 ### 3. For each PR, fetch status via `gh`
 
 ```bash
-gh pr view <PR_NUMBER> --repo <ORG/REPO> --json state,reviews,statusCheckRollup,reviewDecision,mergeable,title --jq '{
+gh pr view <PR_NUMBER> --repo <ORG/REPO> --json state,reviews,statusCheckRollup,reviewDecision,isDraft,mergedAt,title --jq '{
   state: .state,
   reviewDecision: .reviewDecision,
   reviews: [.reviews[] | {author: .author.login, state: .state}],
