@@ -50,8 +50,7 @@ Before executing any steps, read these files in order:
 3. `add-codecov-yml/skill.md` — `codecov.yml` template, compliance rules, and
    platform-specific PR (GitHub via `gh`) and MR (GitLab via `glab`) creation steps
 
-These paths are relative to the coverport repo root. Locate the coverport repo from
-context or ask the user if the path is unclear.
+These paths are relative to the skills directory (`.claude/skills/`).
 
 ## Instructions
 
