@@ -53,6 +53,24 @@ or ask the user if the path is unclear.
 **Dry run:** If the user says "dry run" or "preview", print what would change per repo
 without cloning or opening any PRs/MRs.
 
+## How to Invoke This Skill
+
+This is a natural language skill — users describe what they want, not CLI commands.
+Recognize the user's intent from their message and map it to the appropriate mode and
+targeting. Examples of real user prompts and how to interpret them:
+
+| User says | Mode | Targeting |
+|---|---|---|
+| "Open prepare PRs for all repos in ~/Downloads/audit.csv" | prepare | CSV |
+| "We ran the coverage audit — can you set up all the Onboard=TRUE repos in disabled state?" | prepare | CSV (ask for path if not given) |
+| "The Codecov instance is live, go through audit-q2.csv and enable everything" | enable | CSV |
+| "Set up Codecov for https://gitlab.cee.redhat.com/myteam/myservice — instance isn't ready yet" | prepare | single repo |
+| "Add Codecov to this repo, instance is already running" | full | single repo |
+| "Show me what would change for these repos without actually opening any PRs" | any (dry run) | CSV or single |
+
+If the user doesn't mention a CSV path, ask for it before proceeding. If mode is
+ambiguous, ask whether the Codecov instance is available yet (prepare vs full).
+
 ## CSV Format
 
 Produced by `coverage-audit`. Required columns:
