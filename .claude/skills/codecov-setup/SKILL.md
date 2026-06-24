@@ -146,24 +146,30 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
 
 ### GitHub Actions — Prepare Modifier
 
-Read the upload job template from `codecov-onboarding` Option A. Then apply:
+Read the upload step template from `codecov-onboarding` Option A (self-hosted/token auth
+variant). This is a step that gets added to the **existing primary test workflow file** —
+do not create a new workflow file. Then apply:
 
-1. In the Codecov upload step's `with:` block, add:
+1. Add `if: false` directly on the upload step, and set `url: PLACEHOLDER`:
    ```yaml
-         url: PLACEHOLDER
+       - name: Upload coverage to Codecov
+         if: false  # DISABLED — remove this line when Codecov instance is ready
+         uses: codecov/codecov-action@v5
+         with:
+           url: PLACEHOLDER
+           token: ${{ secrets.CODECOV_TOKEN }}
+           flags: unit-tests
+           files: <coverage-file-path>
+           fail_ci_if_error: false
    ```
-2. Add `if: false` as the first key under the job name:
-   ```yaml
-   jobs:
-     upload-coverage:
-       if: false  # DISABLED — remove this line when Codecov instance is ready
-   ```
+
+The step-level `if: false` makes only this step inert — the rest of the workflow is unchanged.
 
 ### GitHub Actions — Enable Modifier
 
 1. Read the real Codecov instance URL from `codecov-config/CONFIG.md`.
 2. Replace `url: PLACEHOLDER` with `url: <real-instance-url>`.
-3. Remove the `if: false` line from the job definition.
+3. Remove the `if: false` line from the upload step.
 
 ## Prepare Mode Workflow
 
@@ -188,13 +194,14 @@ runs this workflow independently in bulk mode):
    (e.g., `go test`, `pytest`, `jest`, `vitest`).
 6. **Inject coverage flags** per the Coverage Flag Detection table. If no command is found,
    insert the `# TODO` comment and add the repo to the manual-attention list.
-7. **Read upload job template** from `codecov-onboarding` SKILL.md:
-   - GitLab → Option C
-   - GitHub → Option A
+7. **Read upload template** from `codecov-onboarding` SKILL.md:
+   - GitLab → Option C (a new job block appended to `.gitlab-ci.yml`)
+   - GitHub → Option A (a new step added to the existing primary test workflow file)
 8. **Apply the GitLab or GitHub prepare modifier** (see CI Job Modifiers above).
-9. **Write the modified job** to the CI config:
-   - GitLab: append the job block to `.gitlab-ci.yml`
-   - GitHub: create `.github/workflows/codecov-upload.yml` as a new standalone file
+9. **Write the change** to the CI config:
+   - GitLab: append the modified job block to `.gitlab-ci.yml`
+   - GitHub: add the modified upload step to the existing primary test workflow file
+     (`.github/workflows/<test-workflow-name>.yml`) — do not create a new workflow file
 10. **Handle `codecov.yml`** using the template from `add-codecov-yml/skill.md`:
     - File absent → generate from template, write to repo root
     - File present and compliant → skip
@@ -216,10 +223,10 @@ runs this workflow independently in bulk mode):
 2. **Idempotency check:** Search for an open MR/PR with branch `enable-codecov-coverage`.
    If found, skip and add to the "already enabled" list.
 3. **Clone** the repo to `/tmp/codecov-setup/<repo-name>`.
-4. **Verify** the disabled upload job is present in the default branch:
+4. **Verify** the disabled upload step/job is present in the default branch:
    - GitLab: look for a job block containing `when: never`
-   - GitHub: look for `if: false` in a job named `upload-coverage`
-   If not found, warn "prepare job not found in default branch — was the prepare PR merged?"
+   - GitHub: look for `if: false` on a step named `Upload coverage to Codecov` in the primary test workflow
+   If not found, warn "prepare change not found in default branch — was the prepare PR merged?"
    and skip.
 5. **Create branch:**
    ```bash
@@ -322,7 +329,7 @@ affect current CI pipelines until the enable PR is merged.
 
 ### What was added
 - Coverage generation flags added to the existing test command in CI
-- `codecov-upload` job added (disabled via `if: false`)
+- `Upload coverage to Codecov` step added to the existing test workflow (disabled via `if: false`)
 - `codecov.yml` configuration file
 
 ### One manual step required
