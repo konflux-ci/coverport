@@ -1,6 +1,9 @@
 # Agent readiness reports (contain local paths)
 .agentready/
 
+# Skill eval definitions (local testing artifacts, not part of the skill spec)
+**/evals/evals.json
+
 # Binaries
 coverport
 *.exe
