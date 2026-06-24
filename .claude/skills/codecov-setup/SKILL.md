@@ -266,12 +266,20 @@ runs this workflow independently in bulk mode):
 
 ### Full Mode Workflow
 
-Identical to Prepare Mode with one change: in step 8, apply the **enable modifier** instead
-of the prepare modifier, using the real URL from `codecov-config/CONFIG.md`. The job is
-active immediately; no second PR is needed.
-
-Branch name: `add-codecov-coverage`
-Title: `feat: add Codecov coverage reporting`
+1. **Idempotency check:** Search for an open MR/PR with branch `add-codecov-coverage`.
+   If one exists, skip this repo and add it to the "already set up" list in the summary.
+2. **Read instance URL** from `codecov-config/CONFIG.md`. If the URL is still `PLACEHOLDER`,
+   stop and report: "Instance URL is not set in codecov-config/CONFIG.md — cannot run full mode."
+3. **Execute Prepare Mode steps 2–11** (clone → branch → coverage flags → template → enable
+   modifier → `codecov.yml` → commit), with these differences:
+   - Branch name: `add-codecov-coverage`
+   - In step 8, apply the **enable modifier** (not the prepare modifier) using the real URL —
+     the job is active immediately; no second PR is needed.
+4. **Push and open MR/PR:**
+   - Title: `feat: add Codecov coverage reporting`
+   - Body: "Adds fully enabled Codecov coverage upload. Coverage uploads begin on next
+     pipeline run after merge."
+5. **Record** the MR/PR URL in the session summary.
 
 ### Bulk Dispatch (CSV Mode)
 
@@ -306,7 +314,8 @@ Title: `feat: add Codecov coverage reporting`
 |---|---|
 | Open MR/PR on branch `add-codecov-config` already exists | Skip prepare; add to "already prepared" list |
 | Open MR/PR on branch `enable-codecov-coverage` already exists | Skip enable; add to "already enabled" list |
-| Repo recorded in `.codecov-setup-progress.json` for same mode | Skip in bulk mode before dispatching |
+| Open MR/PR on branch `add-codecov-coverage` already exists | Skip full; add to "already set up" list |
+| Repo recorded in `.codecov-setup-progress.json` under the same mode | Skip in bulk mode before dispatching (applies to prepare, enable, and full) |
 
 Never open a duplicate MR/PR. Always report skips in the summary.
 
