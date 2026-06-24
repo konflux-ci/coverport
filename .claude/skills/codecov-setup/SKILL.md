@@ -110,7 +110,7 @@ add the repo to the manual-attention list in the session summary.
 | Language | Flags to append to existing test command | Coverage output file |
 |---|---|---|
 | Go | `-coverprofile=coverage.out -covermode=atomic` appended to `go test` | `coverage.out` |
-| Python | `--cov --cov-report=xml:coverage.xml` appended to `pytest` | `coverage.xml` |
+| Python | `--cov=<package> --cov-report=xml:coverage.xml` appended to `pytest` (see package detection below) | `coverage.xml` |
 | JavaScript | `--coverage` appended to `jest` or `vitest` | `coverage/lcov.info` |
 | TypeScript | `--coverage` appended to `jest` or `vitest` | `coverage/lcov.info` |
 | C/C++ | Delegate entirely to `c-cpp-coverage` skill for the lcov pipeline | `coverage.info` |
@@ -118,10 +118,22 @@ add the repo to the manual-attention list in the session summary.
 
 **Injection rule:** Append flags to the end of the existing command. Never replace the command.
 
+**Python package detection (for `--cov=<package>`):** Determine the package name in this order:
+1. If the existing `pytest` command already contains `--cov=<something>`, extract that value and reuse it (do not duplicate).
+2. Look for a top-level directory containing an `__init__.py` file — that is the package name (e.g. `src/mypackage/__init__.py` → `--cov=mypackage`).
+3. Check `setup.py`, `pyproject.toml`, or `setup.cfg` for the declared package name.
+4. If none of the above yields a clear answer, use `--cov=. --cov-report=xml:coverage.xml` and insert a `# TODO: replace . with the actual package name` comment on the same line; add the repo to the manual-attention list.
+
 Example (Go):
 ```
 Before: go test ./...
 After:  go test -coverprofile=coverage.out -covermode=atomic ./...
+```
+
+Example (Python, package detected as `myservice`):
+```
+Before: pytest tests/
+After:  pytest tests/ --cov=myservice --cov-report=xml:coverage.xml
 ```
 
 If coverage flags are already present in the command, skip this step and note it in the summary.

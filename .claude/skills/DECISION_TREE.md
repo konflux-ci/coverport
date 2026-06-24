@@ -14,9 +14,9 @@ graph TD
     B -->|Single repo — e2e containerized app| F[coverport-integration]
 
     C --> G{Mode?}
-    G -->|Instance not ready| H[--mode prepare\nDisabled job + .codecov.yml per repo]
-    G -->|Instance ready, first time| I[default full mode\nEnabled job + .codecov.yml per repo]
-    G -->|Activating prepared repos| J[--mode enable\nRemove disable guard per repo]
+    G -->|Instance not ready| H[Prepare mode\nDisabled job + .codecov.yml per repo]
+    G -->|Instance ready, first time| I[Full mode\nEnabled job + .codecov.yml per repo]
+    G -->|Activating prepared repos| J[Enable mode\nRemove disable guard per repo]
 
     D --> G
 
