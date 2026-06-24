@@ -50,7 +50,7 @@ Before executing any steps, read these files in order:
 3. `add-codecov-yml/skill.md` — `codecov.yml` template, compliance rules, and
    platform-specific PR (GitHub via `gh`) and MR (GitLab via `glab`) creation steps
 
-These paths are relative to the skills directory (`.claude/skills/`).
+These paths are relative to the skills directory (`.claude/skills/` or `.cursor/skills/` — both resolve to the same location).
 
 ## Instructions
 
