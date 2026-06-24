@@ -329,10 +329,10 @@ affect current CI pipelines until the enable MR is merged.
 - `codecov.yml` configuration file
 
 ### Authentication setup
-Before the enable MR is merged, confirm authentication is configured for this repo with
-the Codecov instance. See `codecov-config/CONFIG.md` in the coverport repo for the
-current auth method for internal GitLab repos — do not set up token-based auth unless
-explicitly confirmed as the required method by your Codecov admin.
+Before the enable MR is merged, add a `CODECOV_TOKEN` CI/CD variable to this project.
+Token-based auth is required for internal GitLab repos — OIDC is not available for
+GitLab CI. See `codecov-config/CONFIG.md` in the coverport repo for the token value
+and setup steps.
 
 ### What happens next
 A follow-up MR will remove the disable guard and set the instance URL once the internal
