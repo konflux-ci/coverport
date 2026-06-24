@@ -116,7 +116,9 @@ add the repo to the manual-attention list in the session summary.
 | C/C++ | Delegate entirely to `c-cpp-coverage` skill for the lcov pipeline | `coverage.info` |
 | Other | Insert `# TODO: add coverage flags for <language>` comment near test step | — |
 
-**Injection rule:** Append flags to the end of the existing command. Never replace the command.
+**Injection rule:** Insert coverage flags immediately before any trailing package or path
+argument (e.g., `./...`, `./pkg/...`, a directory like `tests/`). For test runners where
+no such trailing argument exists, append at the end. Never replace any part of the command.
 
 **Python package detection (for `--cov=<package>`):** Determine the package name in this order:
 1. If the existing `pytest` command already contains `--cov=<something>`, extract that value and reuse it (do not duplicate).
@@ -124,16 +126,16 @@ add the repo to the manual-attention list in the session summary.
 3. Check `setup.py`, `pyproject.toml`, or `setup.cfg` for the declared package name.
 4. If none of the above yields a clear answer, use `--cov=. --cov-report=xml:coverage.xml` and insert a `# TODO: replace . with the actual package name` comment on the same line; add the repo to the manual-attention list.
 
-Example (Go):
+Example (Go — flags inserted before trailing `./...`):
 ```
 Before: go test ./...
 After:  go test -coverprofile=coverage.out -covermode=atomic ./...
 ```
 
-Example (Python, package detected as `myservice`):
+Example (Python — flags inserted before trailing `tests/`):
 ```
 Before: pytest tests/
-After:  pytest tests/ --cov=myservice --cov-report=xml:coverage.xml
+After:  pytest --cov=myservice --cov-report=xml:coverage.xml tests/
 ```
 
 If coverage flags are already present in the command, skip this step and note it in the summary.
@@ -258,8 +260,8 @@ runs this workflow independently in bulk mode):
 4. **Verify** the disabled upload step/job is present in the default branch:
    - GitLab: look for a job block containing `when: never`
    - GitHub: look for `if: false` on a step named `Upload coverage to Codecov` in the primary test workflow
-   If not found, warn "prepare change not found in default branch — was the prepare PR merged?"
-   and skip.
+   If not found, skip this repo and add it to the **Needs Manual Attention** list with reason
+   "prepare change not found in default branch — was the prepare MR/PR merged?"
 5. **Create branch:**
    ```bash
    git checkout -b enable-codecov-coverage
