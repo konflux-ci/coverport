@@ -1,12 +1,13 @@
 ---
 name: codecov-setup
-description: Non-interactive, data-driven Codecov onboarding for one or many repos. Use
-  when you need to open prepare or enable PRs/MRs for Codecov integration across multiple
-  GitLab or GitHub repositories using an audit CSV, or for a single repo without interactive
-  Q&A. Handles coverage generation flags, disabled upload job (prepare mode), and activation
-  (enable mode). Use instead of codecov-onboarding when you have an audit CSV or need bulk
-  processing. Triggers on: "setup codecov for all repos", "bulk codecov", "prepare codecov
-  PRs", "enable codecov", "codecov setup from audit", "onboard repos to codecov".
+description: >-
+  Automated, non-interactive Codecov onboarding driven by an audit CSV. Unlike
+  codecov-onboarding (which asks questions interactively for one repo at a time),
+  codecov-setup reads pre-collected audit data and opens PRs/MRs with zero Q&A —
+  across one repo or hundreds in parallel. Use when you have an audit CSV or need
+  bulk processing. Triggers on: "setup codecov for all repos", "bulk codecov",
+  "prepare codecov PRs", "enable codecov", "codecov setup from audit",
+  "onboard repos to codecov".
 ---
 
 # Codecov Setup Skill
@@ -23,7 +24,7 @@ complete, ready-to-merge PR per repo.
 repo automatically — with no interactive Q&A required.
 
 It supports a two-phase rollout:
-- **Prepare phase** — adds a disabled CI upload job + coverage flags + `codecov.yml` to
+- **Prepare phase** — adds a disabled CI upload job + coverage flags + `.codecov.yml` to
   every repo now, before the Codecov instance is available. Zero CI impact.
 - **Enable phase** — removes the disable guard and sets the real instance URL once the
   Codecov instance is live.
@@ -47,7 +48,7 @@ Before executing any steps, read these files in order:
 1. `codecov-config/CONFIG.md` — platform detection and Codecov instance URL routing
 2. `codecov-onboarding/SKILL.md` — GitLab CI job template (Option C) and GitHub Actions
    step template (Option A); read at runtime, do not copy here
-3. `add-codecov-yml/skill.md` — `codecov.yml` template, compliance rules, and
+3. `add-codecov-yml/skill.md` — `.codecov.yml` template, compliance rules, and
    platform-specific PR (GitHub via `gh`) and MR (GitLab via `glab`) creation steps
 
 These paths are relative to the skills directory (`.claude/skills/` or `.cursor/skills/` — both resolve to the same location).
@@ -57,9 +58,9 @@ These paths are relative to the skills directory (`.claude/skills/` or `.cursor/
 ### Modes and Targeting
 
 **Modes:**
-- `prepare` — adds disabled upload job + coverage flags + `codecov.yml`; no instance URL needed
+- `prepare` — adds disabled upload job + coverage flags + `.codecov.yml`; no instance URL needed
 - `enable` — removes disable guard, fills real instance URL from `codecov-config/CONFIG.md`
-- `full` (default) — fully enabled job + `codecov.yml`; instance must be live
+- `full` (default) — fully enabled job + `.codecov.yml`; instance must be live
 
 **Targeting:**
 - `--target <repo-url>` — single-repo mode; execute steps directly in this session
@@ -219,7 +220,7 @@ runs this workflow independently in bulk mode):
    - GitLab: append the modified job block to `.gitlab-ci.yml`
    - GitHub: add the modified upload step to the existing primary test workflow file
      (`.github/workflows/<test-workflow-name>.yml`) — do not create a new workflow file
-10. **Handle `codecov.yml`** using the template from `add-codecov-yml/skill.md`:
+10. **Handle `.codecov.yml`** using the template from `add-codecov-yml/skill.md`:
     - File absent → generate from template, write to repo root
     - File present and compliant → skip
     - File present but non-compliant → fix in-place and include in this PR
@@ -270,7 +271,7 @@ runs this workflow independently in bulk mode):
 2. **Read instance URL** from `codecov-config/CONFIG.md`. If the URL is still `PLACEHOLDER`,
    stop and report: "Instance URL is not set in codecov-config/CONFIG.md — cannot run full mode."
 3. **Execute Prepare Mode steps 2–11** (clone → branch → coverage flags → template → enable
-   modifier → `codecov.yml` → commit), with these differences:
+   modifier → `.codecov.yml` → commit), with these differences:
    - Branch name: `add-codecov-coverage`
    - In step 8, apply the **enable modifier** (not the prepare modifier) using the real URL —
      the job is active immediately; no second PR is needed.
@@ -334,7 +335,7 @@ affect current CI pipelines until the enable MR is merged.
 ### What was added
 - Coverage generation flags added to the existing test command in CI
 - `codecov-upload` job added (disabled via `when: never`)
-- `codecov.yml` configuration file
+- `.codecov.yml` configuration file
 
 ### Authentication setup
 Before the enable MR is merged, add a `CODECOV_TOKEN` CI/CD variable to this project.
@@ -358,7 +359,7 @@ affect current CI pipelines until the enable PR is merged.
 ### What was added
 - Coverage generation flags added to the existing test command in CI
 - `Upload coverage to Codecov` step added to the existing test workflow (disabled via `if: false`)
-- `codecov.yml` configuration file
+- `.codecov.yml` configuration file
 
 ### Authentication setup
 Before the enable PR is merged, confirm authentication is configured for this repo with

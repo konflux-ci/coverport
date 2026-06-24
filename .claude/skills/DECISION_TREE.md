@@ -8,14 +8,14 @@ graph TD
     AA -->|Full CI onboarding| B{How many repos?}
     AA -->|Track rollout progress| AC[refresh-codecov-sheet]
 
-    B -->|Multiple repos — audit CSV available| C[codecov-setup --csv audit.csv]
-    B -->|Single repo — automated, no Q&A| D[codecov-setup --target url]
-    B -->|Single repo — interactive guidance| E[codecov-onboarding]
+    B -->|Multiple repos — audit CSV available| C[codecov-setup\nAutomated bulk onboarding — no Q&A]
+    B -->|Single repo — automated, no Q&A| D[codecov-setup\nAutomated single-repo onboarding — no Q&A]
+    B -->|Single repo — interactive step-by-step| E[codecov-onboarding\nInteractive guided onboarding]
     B -->|Single repo — e2e containerized app| F[coverport-integration]
 
     C --> G{Mode?}
-    G -->|Instance not ready| H[--mode prepare\nDisabled job + codecov.yml per repo]
-    G -->|Instance ready, first time| I[default full mode\nEnabled job + codecov.yml per repo]
+    G -->|Instance not ready| H[--mode prepare\nDisabled job + .codecov.yml per repo]
+    G -->|Instance ready, first time| I[default full mode\nEnabled job + .codecov.yml per repo]
     G -->|Activating prepared repos| J[--mode enable\nRemove disable guard per repo]
 
     D --> G
