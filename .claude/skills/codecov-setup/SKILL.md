@@ -267,7 +267,34 @@ Never open a duplicate MR/PR. Always report skips in the summary.
 
 ## PR Description Template (Prepare Mode)
 
-Use this exact body for every prepare-mode MR/PR:
+Use the platform-appropriate body below. Include only the token step matching the repo's
+platform — do not include both.
+
+**GitLab MR body:**
+
+```markdown
+## Codecov Setup (Disabled — Pending Internal Instance)
+
+This MR adds Codecov coverage infrastructure. The upload job is **disabled** and will not
+affect current CI pipelines until the enable MR is merged.
+
+### What was added
+- Coverage generation flags added to the existing test command in CI
+- `codecov-upload` job added (disabled via `when: never`)
+- `codecov.yml` configuration file
+
+### One manual step required
+Set `CODECOV_TOKEN` as a masked CI/CD variable before the enable MR is merged:
+**Settings → CI/CD → Variables → add `CODECOV_TOKEN` (masked, protected)**
+
+Obtain the token from the internal Codecov instance once it is available.
+
+### What happens next
+A follow-up MR will remove the disable guard and set the instance URL once the internal
+Codecov instance is ready. No further changes to this repo will be needed at that point.
+```
+
+**GitHub PR body:**
 
 ```markdown
 ## Codecov Setup (Disabled — Pending Internal Instance)
@@ -277,13 +304,12 @@ affect current CI pipelines until the enable PR is merged.
 
 ### What was added
 - Coverage generation flags added to the existing test command in CI
-- `codecov-upload` job added (disabled via `when: never` / `if: false`)
+- `codecov-upload` job added (disabled via `if: false`)
 - `codecov.yml` configuration file
 
 ### One manual step required
-Set `CODECOV_TOKEN` as a CI secret before the enable PR is merged:
-- **GitLab:** Settings → CI/CD → Variables → add `CODECOV_TOKEN` (masked, protected)
-- **GitHub:** Settings → Secrets → Actions → add `CODECOV_TOKEN`
+Set `CODECOV_TOKEN` as a repository secret before the enable PR is merged:
+**Settings → Secrets → Actions → add `CODECOV_TOKEN`**
 
 Obtain the token from the internal Codecov instance once it is available.
 
