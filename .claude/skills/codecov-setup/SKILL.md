@@ -9,37 +9,53 @@ description: Non-interactive, data-driven Codecov onboarding for one or many rep
   PRs", "enable codecov", "codecov setup from audit", "onboard repos to codecov".
 ---
 
-# codecov-setup
+# Codecov Setup Skill
 
 Non-interactive, data-driven version of `codecov-onboarding`. Uses audit CSV data to
 pre-answer every question `codecov-onboarding` would ask interactively, producing a
 complete, ready-to-merge PR per repo.
 
-## When to Use
+## What is codecov-setup?
 
-| Situation | Command |
-|---|---|
-| Many repos, Codecov instance not yet available | `codecov-setup --csv audit.csv --mode prepare` |
-| Many repos, instance already running | `codecov-setup --csv audit.csv` |
-| Activate all previously prepared repos | `codecov-setup --csv audit.csv --mode enable` |
-| Single repo, instance not yet available | `codecov-setup --target <repo-url> --mode prepare` |
-| Single repo, wants interactive Q&A guidance | Use `codecov-onboarding` instead |
-| E2e container instrumentation | Use `coverport-integration` instead |
+`codecov-setup` is the bulk automation layer for Codecov onboarding. Where
+`codecov-onboarding` guides a developer through setup interactively for a single repo,
+`codecov-setup` reads an audit CSV (produced by `coverage-audit`) and opens one PR per
+repo automatically — with no interactive Q&A required.
 
-## Prerequisites — Read These First
+It supports a two-phase rollout:
+- **Prepare phase** — adds a disabled CI upload job + coverage flags + `codecov.yml` to
+  every repo now, before the Codecov instance is available. Zero CI impact.
+- **Enable phase** — removes the disable guard and sets the real instance URL once the
+  Codecov instance is live.
 
-Before executing any steps in this skill, read these files in order:
+## When to Use This Skill
+
+Use this skill when:
+- You have an audit CSV (from `coverage-audit`) and want to open Codecov PRs for all
+  `Onboard=TRUE` repos in one operation
+- You want to prepare repos now and activate them later when the Codecov instance is ready
+- You need single-repo Codecov setup without interactive guidance
+
+Do not use this skill for:
+- Interactive, guided onboarding of a single repo — use `codecov-onboarding`
+- E2e container instrumentation — use `coverport-integration`
+
+## Prerequisites
+
+Before executing any steps, read these files in order:
 
 1. `codecov-config/CONFIG.md` — platform detection and Codecov instance URL routing
 2. `codecov-onboarding/SKILL.md` — GitLab CI job template (Option C) and GitHub Actions
-   job template (Option A); read these templates at runtime, do not copy them here
+   step template (Option A); read at runtime, do not copy here
 3. `add-codecov-yml/skill.md` — `codecov.yml` template, compliance rules, and PR/MR
    creation steps for both GitLab and GitHub
 
-These paths are relative to the coverport repo root. Locate the coverport repo from context
-or ask the user if the path is unclear.
+These paths are relative to the coverport repo root. Locate the coverport repo from
+context or ask the user if the path is unclear.
 
-## Interface
+## Instructions
+
+### Modes and Targeting
 
 **Modes:**
 - `prepare` — adds disabled upload job + coverage flags + `codecov.yml`; no instance URL needed
@@ -53,7 +69,7 @@ or ask the user if the path is unclear.
 **Dry run:** If the user says "dry run" or "preview", print what would change per repo
 without cloning or opening any PRs/MRs.
 
-## How to Invoke This Skill
+### How to Invoke This Skill
 
 This is a natural language skill — users describe what they want, not CLI commands.
 Recognize the user's intent from their message and map it to the appropriate mode and
@@ -71,7 +87,7 @@ targeting. Examples of real user prompts and how to interpret them:
 If the user doesn't mention a CSV path, ask for it before proceeding. If mode is
 ambiguous, ask whether the Codecov instance is available yet (prepare vs full).
 
-## CSV Format
+### CSV Format
 
 Produced by `coverage-audit`. Required columns:
 
@@ -85,7 +101,7 @@ Produced by `coverage-audit`. Required columns:
 
 Process only rows where `Onboard=TRUE` AND `Has Codecov` is not `TRUE`.
 
-## Coverage Flag Detection
+### Coverage Flag Detection
 
 Find the existing test command in the CI config file and inject coverage flags.
 If no test command is found for the repo's language, insert a `# TODO` comment and
@@ -110,11 +126,11 @@ After:  go test -coverprofile=coverage.out -covermode=atomic ./...
 
 If coverage flags are already present in the command, skip this step and note it in the summary.
 
-## CI Job Modifiers
+### CI Job Modifiers
 
 These modifiers are applied on top of the upload job templates read from `codecov-onboarding`.
 
-### GitLab CI — Prepare Modifier
+#### GitLab CI — Prepare Modifier
 
 Read the upload job template from `codecov-onboarding` Option C. Then apply:
 
@@ -128,7 +144,7 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
        - when: never   # DISABLED — remove this block when Codecov instance is ready
    ```
 
-### GitLab CI — Enable Modifier
+#### GitLab CI — Enable Modifier
 
 1. Read the real Codecov instance URL from `codecov-config/CONFIG.md`.
 2. Replace `CODECOV_URL: "PLACEHOLDER"` with the real URL:
@@ -144,7 +160,7 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
      allow_failure: true
    ```
 
-### GitHub Actions — Prepare Modifier
+#### GitHub Actions — Prepare Modifier
 
 Read the upload step template from `codecov-onboarding` Option A (self-hosted/token auth
 variant). This is a step that gets added to the **existing primary test workflow file** —
@@ -167,13 +183,13 @@ do not create a new workflow file. Then apply:
 
 The step-level `if: false` makes only this step inert — the rest of the workflow is unchanged.
 
-### GitHub Actions — Enable Modifier
+#### GitHub Actions — Enable Modifier
 
 1. Read the real Codecov instance URL from `codecov-config/CONFIG.md`.
 2. Replace `url: PLACEHOLDER` with `url: <real-instance-url>`.
 3. Remove the `if: false` line from the upload step.
 
-## Prepare Mode Workflow
+### Prepare Mode Workflow
 
 Execute these steps for each target repo (directly in single-repo mode; each subagent
 runs this workflow independently in bulk mode):
@@ -218,7 +234,7 @@ runs this workflow independently in bulk mode):
     - MR/PR body: see PR Description Template section below
 13. **Record** the MR/PR URL in the session summary.
 
-## Enable Mode Workflow
+### Enable Mode Workflow
 
 1. **Read instance URL** from `codecov-config/CONFIG.md`. If the URL is still `PLACEHOLDER`,
    stop and report: "Instance URL is not set in codecov-config/CONFIG.md — cannot run enable mode."
@@ -246,7 +262,7 @@ runs this workflow independently in bulk mode):
      on next pipeline run after merge."
 9. **Record** the MR/PR URL in the session summary.
 
-## Full Mode Workflow
+### Full Mode Workflow
 
 Identical to Prepare Mode with one change: in step 8, apply the **enable modifier** instead
 of the prepare modifier, using the real URL from `codecov-config/CONFIG.md`. The job is
@@ -255,7 +271,7 @@ active immediately; no second PR is needed.
 Branch name: `add-codecov-coverage`
 Title: `feat: add Codecov coverage reporting`
 
-## Bulk Dispatch (CSV Mode)
+### Bulk Dispatch (CSV Mode)
 
 1. **Parse CSV.** Filter to rows where `Onboard=TRUE` AND `Has Codecov` ≠ `TRUE`.
 2. **Check progress file:** If `.codecov-setup-progress.json` exists in the current working
@@ -282,7 +298,7 @@ Title: `feat: add Codecov coverage reporting`
    ```
 7. **Print the session summary** (see Session Summary Format below).
 
-## Idempotency
+### Idempotency
 
 | Situation | Action |
 |---|---|
@@ -292,9 +308,9 @@ Title: `feat: add Codecov coverage reporting`
 
 Never open a duplicate MR/PR. Always report skips in the summary.
 
-## PR Description Template (Prepare Mode)
+### PR Description Template (Prepare Mode)
 
-Use the platform-appropriate body below. Include only the token step matching the repo's
+Use the platform-appropriate body below. Include only the section matching the repo's
 platform — do not include both.
 
 **GitLab MR body:**
@@ -344,7 +360,7 @@ A follow-up PR will remove the disable guard and set the instance URL once the i
 Codecov instance is ready. No further changes to this repo will be needed at that point.
 ```
 
-## Session Summary Format
+### Session Summary Format
 
 After processing all repos, print this summary:
 
