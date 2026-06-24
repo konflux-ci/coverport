@@ -37,7 +37,8 @@ graph TD
     Q -->|Test runner output| T[Pattern C: client-side]
 
     N --> U{Where is the repo?}
-    U -->|Public GitHub or GitLab.com| V[app.codecov.io — OIDC preferred]
+    U -->|Public GitHub| V[app.codecov.io — OIDC preferred]
+    U -->|Public GitLab.com| V2[app.codecov.io — token auth]
     U -->|Private GitHub| W[Self-hosted Codecov — see codecov-config/CONFIG.md for auth]
     U -->|Internal GitLab| X[Self-hosted Codecov — see codecov-config/CONFIG.md for auth]
 ```
