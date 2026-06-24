@@ -150,14 +150,16 @@ Read the upload step template from `codecov-onboarding` Option A (self-hosted/to
 variant). This is a step that gets added to the **existing primary test workflow file** —
 do not create a new workflow file. Then apply:
 
-1. Add `if: false` directly on the upload step, and set `url: PLACEHOLDER`:
+1. Add `if: false` directly on the upload step, and set `url: PLACEHOLDER`. Use the
+   auth method from the template read from `codecov-onboarding` Option A — do not
+   add or change auth fields:
    ```yaml
        - name: Upload coverage to Codecov
          if: false  # DISABLED — remove this line when Codecov instance is ready
          uses: codecov/codecov-action@v5
          with:
            url: PLACEHOLDER
-           token: ${{ secrets.CODECOV_TOKEN }}
+           # auth fields carried over from Option A template unchanged
            flags: unit-tests
            files: <coverage-file-path>
            fail_ci_if_error: false
@@ -308,11 +310,11 @@ affect current CI pipelines until the enable MR is merged.
 - `codecov-upload` job added (disabled via `when: never`)
 - `codecov.yml` configuration file
 
-### One manual step required
-Set `CODECOV_TOKEN` as a masked CI/CD variable before the enable MR is merged:
-**Settings → CI/CD → Variables → add `CODECOV_TOKEN` (masked, protected)**
-
-Obtain the token from the internal Codecov instance once it is available.
+### Authentication setup
+Before the enable MR is merged, confirm authentication is configured for this repo with
+the Codecov instance. See `codecov-config/CONFIG.md` in the coverport repo for the
+current auth method for internal GitLab repos — do not set up token-based auth unless
+explicitly confirmed as the required method by your Codecov admin.
 
 ### What happens next
 A follow-up MR will remove the disable guard and set the instance URL once the internal
@@ -332,11 +334,10 @@ affect current CI pipelines until the enable PR is merged.
 - `Upload coverage to Codecov` step added to the existing test workflow (disabled via `if: false`)
 - `codecov.yml` configuration file
 
-### One manual step required
-Set `CODECOV_TOKEN` as a repository secret before the enable PR is merged:
-**Settings → Secrets → Actions → add `CODECOV_TOKEN`**
-
-Obtain the token from the internal Codecov instance once it is available.
+### Authentication setup
+Before the enable PR is merged, confirm authentication is configured for this repo with
+the Codecov instance. See `codecov-config/CONFIG.md` in the coverport repo for the
+current auth method — OIDC is preferred where supported.
 
 ### What happens next
 A follow-up PR will remove the disable guard and set the instance URL once the internal
