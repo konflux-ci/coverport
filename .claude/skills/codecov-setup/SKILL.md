@@ -47,8 +47,8 @@ Before executing any steps, read these files in order:
 1. `codecov-config/CONFIG.md` — platform detection and Codecov instance URL routing
 2. `codecov-onboarding/SKILL.md` — GitLab CI job template (Option C) and GitHub Actions
    step template (Option A); read at runtime, do not copy here
-3. `add-codecov-yml/skill.md` — `codecov.yml` template, compliance rules, and PR/MR
-   creation steps for both GitLab and GitHub
+3. `add-codecov-yml/skill.md` — `codecov.yml` template, compliance rules, and
+   platform-specific PR (GitHub via `gh`) and MR (GitLab via `glab`) creation steps
 
 These paths are relative to the coverport repo root. Locate the coverport repo from
 context or ask the user if the path is unclear.
@@ -229,7 +229,9 @@ runs this workflow independently in bulk mode):
     git add -A
     git commit -m "chore: add codecov setup (disabled, pending internal instance)"
     ```
-12. **Push and open MR/PR** using the steps from `add-codecov-yml/skill.md` for the platform:
+12. **Push and open MR/PR** using the platform-specific step from `add-codecov-yml/skill.md § 4`:
+    - GitHub repos: use `gh pr create`
+    - GitLab repos: use `glab mr create` (or GitLab web UI if `glab` is unavailable)
     - MR/PR title: `chore: add Codecov coverage config (disabled — pending internal instance)`
     - MR/PR body: see PR Description Template section below
 13. **Record** the MR/PR URL in the session summary.

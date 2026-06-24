@@ -1,19 +1,24 @@
 ---
 name: add-codecov-yml
-description: Use when asked to add, create, or generate a .codecov.yml file for a repository and open a PR. Triggers on requests like "add codecov config", "create codecov yml", "set up codecov for repo X", "add coverage config to repo".
+description: Use when asked to add, create, or generate a .codecov.yml file for a repository and open a PR or MR. Supports GitHub and GitLab repositories. Triggers on requests like "add codecov config", "create codecov yml", "set up codecov for repo X", "add coverage config to repo".
 ---
 
 # Add .codecov.yml to a Repository
 
 ## Overview
 
-Generates a `.codecov.yml` configuration file for a GitHub repository and opens a PR. Uses the Konflux standard coverage config as the baseline with customizable thresholds.
+Generates a `.codecov.yml` configuration file for a GitHub or GitLab repository and opens a PR (GitHub) or MR (GitLab). Uses the Konflux standard coverage config as the baseline with customizable thresholds.
+
+Detect the platform from the repo URL or the `platform` parameter:
+- URL contains `github.com` → GitHub; use `gh` CLI
+- URL contains a GitLab hostname (e.g. `gitlab.com`, `gitlab.cee.redhat.com`) → GitLab; use `glab` CLI
 
 ## Parameters
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `repo` | **yes** | — | GitHub repo in `org/name` format (e.g. `konflux-ci/build-service`) |
+| `repo` | **yes** | — | GitHub repo in `org/name` format **or** full GitLab HTTPS URL |
+| `platform` | no | auto-detect from URL | `github` or `gitlab`; overrides URL-based detection |
 | `project_target` | no | `auto` | Project coverage target (`auto` tracks current, or a percentage like `80%`) |
 | `project_threshold` | no | `1%` | Allowed drop below project target |
 | `patch_target` | no | `80%` | Minimum coverage for changed lines |
@@ -23,10 +28,19 @@ Generates a `.codecov.yml` configuration file for a GitHub repository and opens 
 
 ### 1. Clone the repo
 
+**GitHub:**
 ```bash
-REPO="org/repo-name"  # from user input
+REPO="org/repo-name"  # from user input (org/name format)
 WORKDIR=$(mktemp -d)
 gh repo clone "$REPO" "$WORKDIR/repo" -- --depth 1
+cd "$WORKDIR/repo"
+```
+
+**GitLab:**
+```bash
+REPO_URL="https://gitlab.cee.redhat.com/group/repo"  # full HTTPS URL
+WORKDIR=$(mktemp -d)
+git clone --depth 1 "$REPO_URL" "$WORKDIR/repo"
 cd "$WORKDIR/repo"
 ```
 
@@ -87,7 +101,9 @@ comment:
 
 Replace `<project_target>`, `<project_threshold>`, `<patch_target>`, `<patch_threshold>` with the actual values.
 
-### 4. Create branch, commit, and open PR
+### 4. Create branch, commit, and open PR/MR
+
+The branch creation and commit steps are the same on both platforms:
 
 ```bash
 BRANCH="add-codecov-yml"
@@ -102,7 +118,12 @@ Adds Codecov coverage configuration with:
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 git push -u origin "$BRANCH"
+```
 
+Then open the PR or MR using the platform-specific steps below.
+
+**GitHub — open PR with `gh`:**
+```bash
 gh pr create \
   --title "Add .codecov.yml configuration" \
   --body "$(cat <<'EOF'
@@ -121,9 +142,33 @@ EOF
 )"
 ```
 
+**GitLab — open MR with `glab`:**
+```bash
+glab mr create \
+  --title "Add .codecov.yml configuration" \
+  --description "$(cat <<'EOF'
+## Summary
+
+- Adds `.codecov.yml` with standard Konflux coverage settings
+- Project coverage target: <project_target> (threshold: <project_threshold>)
+- Patch coverage target: <patch_target> (threshold: <patch_threshold>)
+
+## Reference
+
+Based on [konflux-ui/.codecov.yml](https://github.com/konflux-ci/konflux-ui/blob/main/.codecov.yml)
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)" \
+  --source-branch "$BRANCH" \
+  --target-branch "$(git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||')"
+```
+
+If `glab` is not available, open the MR manually: in the GitLab web UI, navigate to the repository → Merge Requests → New merge request → select branch `add-codecov-yml` and submit with the title and description above.
+
 ### 5. Report back
 
-Print the PR URL so the user can review it.
+Print the PR/MR URL so the user can review it.
 
 ### 6. Cleanup
 
@@ -133,6 +178,7 @@ rm -rf "$WORKDIR"
 
 ## Common Issues
 
-- **Fork required**: If the user doesn't have push access, fork first with `gh repo fork "$REPO" --clone`
+- **GitHub — fork required**: If the user doesn't have push access, fork first with `gh repo fork "$REPO" --clone`
+- **GitLab — fork required**: If the user doesn't have push access, fork with `glab repo fork <repo-url>` or use the GitLab web UI (Fork button on the project page)
 - **Branch already exists**: Append a timestamp — `add-codecov-yml-$(date +%s)`
 - **Go repos**: The default `ignore` pattern targets TypeScript test data (`**/*__data__*/*.ts`). For Go repos, ask the user if they want to adjust ignore patterns (e.g. `**/testdata/**`, `**/*_test.go`)
