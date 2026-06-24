@@ -5,30 +5,39 @@ graph TD
     A[User wants code coverage] --> AA{What do they need?}
 
     AA -->|Just add .codecov.yml config| AB[add-codecov-yml]
-    AA -->|Full CI onboarding| B{What type of tests?}
+    AA -->|Full CI onboarding| B{How many repos?}
     AA -->|Track rollout progress| AC[refresh-codecov-sheet]
 
-    B -->|Unit / Integration| C[codecov-onboarding]
-    B -->|E2E containerized app| D[coverport-integration]
+    B -->|Multiple repos — audit CSV available| C[codecov-setup --csv audit.csv]
+    B -->|Single repo — automated, no Q&A| D[codecov-setup --target url]
+    B -->|Single repo — interactive guidance| E[codecov-onboarding]
+    B -->|Single repo — e2e containerized app| F[coverport-integration]
 
-    C --> E{Language?}
-    E -->|C / C++| F[c-cpp-coverage]
-    E -->|Go, Python, JS, Rust, etc.| G[Standard coverage generation]
+    C --> G{Mode?}
+    G -->|Instance not ready| H[--mode prepare\nDisabled job + codecov.yml per repo]
+    G -->|Instance ready, first time| I[default full mode\nEnabled job + codecov.yml per repo]
+    G -->|Activating prepared repos| J[--mode enable\nRemove disable guard per repo]
 
-    F --> H[codecov-config]
-    G --> H
-    D --> H
+    D --> G
 
-    D --> I{CI System?}
-    I -->|Tekton / Konflux| J[Tekton pipeline tasks]
-    I -->|GitHub Actions| K{Collection pattern?}
+    E --> K{Language?}
+    K -->|C / C++| L[c-cpp-coverage]
+    K -->|Go, Python, JS, Rust, etc.| M[Standard coverage generation]
 
-    K -->|App in Kubernetes| L[Pattern A: port-forward to pod:9095]
-    K -->|App running locally| M[Pattern B: --url localhost:9095]
-    K -->|Test runner output| N[Pattern C: client-side]
+    L --> N[codecov-config]
+    M --> N
+    F --> N
 
-    H --> O{Where is the repo?}
-    O -->|Public GitHub or GitLab.com| P[app.codecov.io — OIDC]
-    O -->|Private GitHub| Q[Self-hosted Codecov — Token]
-    O -->|Internal GitLab| R[Self-hosted Codecov — Token]
+    F --> O{CI System?}
+    O -->|Tekton / Konflux| P[Tekton pipeline tasks]
+    O -->|GitHub Actions| Q{Collection pattern?}
+
+    Q -->|App in Kubernetes| R[Pattern A: port-forward to pod:9095]
+    Q -->|App running locally| S[Pattern B: --url localhost:9095]
+    Q -->|Test runner output| T[Pattern C: client-side]
+
+    N --> U{Where is the repo?}
+    U -->|Public GitHub or GitLab.com| V[app.codecov.io — OIDC]
+    U -->|Private GitHub| W[Self-hosted Codecov — Token]
+    U -->|Internal GitLab| X[Self-hosted Codecov — Token]
 ```
