@@ -219,7 +219,7 @@ runs this workflow independently in bulk mode):
      cd /tmp/codecov-setup/<repo-name>
      # origin = your fork, upstream = original; PR will target upstream default branch
      ```
-   - **GitLab:** `glab api projects/<url-encoded-path>` — check `"access_level"` ≥ 30 (Developer).
+   - **GitLab with `glab`:** `glab api projects/<url-encoded-path>` — check `"access_level"` ≥ 30 (Developer).
      If below 30, fork first:
      ```bash
      glab repo fork <repo-url>
@@ -227,9 +227,23 @@ runs this workflow independently in bulk mode):
      cd /tmp/codecov-setup/<repo-name>
      git remote add upstream <original-repo-url>
      ```
-   - **If access check tooling is unavailable:** clone directly and proceed; if `git push` fails
-     with a permission error, add the repo to the Needs Manual Attention list with reason
-     "push access denied — fork and re-run manually."
+   - **GitLab without `glab` (curl fallback):** use the REST API directly with `$GITLAB_TOKEN`:
+     ```bash
+     # URL-encode the project path (replace / with %2F)
+     curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+       "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>" \
+       | python3 -c "import json,sys; d=json.load(sys.stdin); \
+           print(d.get('permissions',{}).get('project_access',{}).get('access_level', 0))"
+     ```
+     If the result is below 30, fork via API:
+     ```bash
+     curl -s -X POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+       "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>/fork"
+     # clone the fork URL from the response, add upstream remote manually
+     ```
+   - **If neither `glab` nor `$GITLAB_TOKEN` is available:** clone directly and proceed;
+     if `git push` fails with a permission error, add the repo to the Needs Manual Attention
+     list with reason "push access denied — set GITLAB_TOKEN or install glab and re-run."
 
    **Direct push (most internal repos):**
    ```bash
