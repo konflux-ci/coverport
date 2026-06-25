@@ -28,6 +28,11 @@ Use this skill when the user:
 - Mentions integrating Codecov with GitHub Actions, OpenShift CI, or GitLab CI
 - Wants to add coverage tracking to their existing test pipeline
 
+**For just adding a `.codecov.yml` config file** without full CI
+onboarding (e.g., org-wide rollout where you only need the config),
+use the `add-codecov-yml` skill instead. It creates the file and
+opens a PR — no CI pipeline changes.
+
 **For C/C++ projects:** This skill handles the overall onboarding
 workflow. For C/C++ specific coverage generation (gcov, lcov, build
 system configuration, workarounds), delegate to the
@@ -961,6 +966,11 @@ After integration, provide these verification steps:
 
 ## Related Skills
 
+- **`add-codecov-yml`** — Quick-path: just adds a `.codecov.yml` config
+  file and opens a PR. Use for org-wide rollouts or when CI already
+  uploads coverage and you only need the config.
+- **`refresh-codecov-sheet`** — Tracks org-wide Codecov rollout progress
+  by bulk-checking PR statuses and updating a Google Sheet tracker.
 - **`codecov-config/CONFIG.md`** — Codecov instance routing table (which
   repo location maps to which Codecov instance). Read this first.
 - **`c-cpp-coverage`** — Detailed C/C++ coverage generation with gcov/lcov.

@@ -12,14 +12,18 @@ through the entire process.
 | Skill | What it does |
 |---|---|
 | **codecov-onboarding** | Onboards any repo to Codecov — analyzes your project, configures CI, uploads coverage with proper flags |
+| **add-codecov-yml** | Quick-path: just adds a `.codecov.yml` config file to a repo and opens a PR (no CI setup) |
 | **codecov-config** | Routes you to the correct Codecov instance based on where your repo is hosted |
 | **c-cpp-coverage** | Generates coverage for C/C++ projects (gcov/lcov pipeline, workarounds for autotools/CMake/Meson) |
 | **coverport-integration** | Integrates e2e test coverage via coverport for containerized Go/Python/Node.js apps (Tekton pipelines or GitHub Actions via podman) |
+| **refresh-codecov-sheet** | Tracks org-wide Codecov rollout progress — refreshes PR statuses in a Google Sheet tracker |
 
 **You don't need all of them** — install what's relevant:
 - **Everyone** needs `codecov-onboarding` + `codecov-config`
+- **Quick config-only rollout** — use `add-codecov-yml` to add `.codecov.yml` and open a PR without full CI onboarding
 - **C/C++ projects** also need `c-cpp-coverage`
 - **E2E coverage** (containerized apps with Tekton or GitHub Actions) also needs `coverport-integration`
+- **Rollout tracking** — use `refresh-codecov-sheet` to bulk-check PR statuses across an org
 
 ## What the Skills Handle
 
@@ -80,6 +84,16 @@ curl -o ~/.claude/skills/c-cpp-coverage/SKILL.md \
 mkdir -p ~/.claude/skills/coverport-integration
 curl -o ~/.claude/skills/coverport-integration/SKILL.md \
   https://raw.githubusercontent.com/konflux-ci/coverport/main/.claude/skills/coverport-integration/SKILL.md
+
+# Quick config-only rollout — adds .codecov.yml and opens a PR:
+mkdir -p ~/.claude/skills/add-codecov-yml
+curl -o ~/.claude/skills/add-codecov-yml/skill.md \
+  https://raw.githubusercontent.com/konflux-ci/coverport/main/.claude/skills/add-codecov-yml/skill.md
+
+# Rollout tracking — bulk-refresh PR statuses in a Google Sheet:
+mkdir -p ~/.claude/skills/refresh-codecov-sheet
+curl -o ~/.claude/skills/refresh-codecov-sheet/skill.md \
+  https://raw.githubusercontent.com/konflux-ci/coverport/main/.claude/skills/refresh-codecov-sheet/skill.md
 ```
 
 #### Verify installation
@@ -135,6 +149,16 @@ curl -o ~/.cursor/skills-cursor/c-cpp-coverage/SKILL.md \
 mkdir -p ~/.cursor/skills-cursor/coverport-integration
 curl -o ~/.cursor/skills-cursor/coverport-integration/SKILL.md \
   https://raw.githubusercontent.com/konflux-ci/coverport/main/.claude/skills/coverport-integration/SKILL.md
+
+# Quick config-only rollout:
+mkdir -p ~/.cursor/skills-cursor/add-codecov-yml
+curl -o ~/.cursor/skills-cursor/add-codecov-yml/skill.md \
+  https://raw.githubusercontent.com/konflux-ci/coverport/main/.claude/skills/add-codecov-yml/skill.md
+
+# Rollout tracking:
+mkdir -p ~/.cursor/skills-cursor/refresh-codecov-sheet
+curl -o ~/.cursor/skills-cursor/refresh-codecov-sheet/skill.md \
+  https://raw.githubusercontent.com/konflux-ci/coverport/main/.claude/skills/refresh-codecov-sheet/skill.md
 ```
 
 **Per-project installation:**
