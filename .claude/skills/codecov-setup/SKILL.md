@@ -210,7 +210,28 @@ runs this workflow independently in bulk mode):
 
 1. **Idempotency check:** Search for an open MR/PR with branch name `add-codecov-config`.
    If one exists, skip this repo and add it to the "already prepared" list in the summary.
-2. **Clone** the repo:
+2. **Access check — clone and verify push access:**
+   Determine whether you have direct push access to the repo before cloning:
+   - **GitHub:** `gh api repos/<org>/<repo>` — check `"permissions": {"push": true}`. If `false`, fork first:
+     ```bash
+     gh repo fork <org>/<repo> --clone --remote-name upstream
+     mv <repo> /tmp/codecov-setup/<repo-name>
+     cd /tmp/codecov-setup/<repo-name>
+     # origin = your fork, upstream = original; PR will target upstream default branch
+     ```
+   - **GitLab:** `glab api projects/<url-encoded-path>` — check `"access_level"` ≥ 30 (Developer).
+     If below 30, fork first:
+     ```bash
+     glab repo fork <repo-url>
+     git clone <your-fork-url> /tmp/codecov-setup/<repo-name>
+     cd /tmp/codecov-setup/<repo-name>
+     git remote add upstream <original-repo-url>
+     ```
+   - **If access check tooling is unavailable:** clone directly and proceed; if `git push` fails
+     with a permission error, add the repo to the Needs Manual Attention list with reason
+     "push access denied — fork and re-run manually."
+
+   **Direct push (most internal repos):**
    ```bash
    git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
@@ -256,7 +277,8 @@ runs this workflow independently in bulk mode):
    stop and report: "Instance URL is not set in codecov-config/CONFIG.md — cannot run enable mode."
 2. **Idempotency check:** Search for an open MR/PR with branch `enable-codecov-coverage`.
    If found, skip and add to the "already enabled" list.
-3. **Clone** the repo to `/tmp/codecov-setup/<repo-name>`.
+3. **Clone** the repo to `/tmp/codecov-setup/<repo-name>`, applying the same access check
+   from Prepare Mode step 2 (direct push or fork as needed).
 4. **Verify** the disabled upload step/job is present in the default branch:
    - GitLab: look for a job block containing `when: never`
    - GitHub: look for `if: false` on a step named `Upload coverage to Codecov` in the primary test workflow
