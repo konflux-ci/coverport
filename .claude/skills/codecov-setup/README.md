@@ -145,16 +145,19 @@ Show me what would change for the repos in ~/audit.csv without actually
 opening any PRs.
 ```
 
-### Clone dry run (exact diff, no MRs opened)
+Infers changes from CSV columns alone — instant, zero network.
+
+### Prepare local (commit locally, review diffs, no MRs opened)
 
 ```
-Clone dry run for ~/audit.csv — show me the exact line-level diff for
-each repo before we open any MRs.
+Prepare local for ~/audit.csv — commit changes locally and show me
+the exact diff for each repo before we open any MRs.
 ```
 
-Clones every repo to `/tmp`, inspects the real CI files and package
-structure, prints the precise before/after diff per repo, then stops
-— no commit, no push, no MR opened.
+Clones every repo (one subagent per repo, in parallel), applies all
+prepare-mode changes, commits locally, and prints `git show HEAD` per
+repo. No push, no MR. Local clones remain in `/tmp/codecov-setup/`
+for inspection. Run `prepare` when ready to push and open real MRs.
 
 ---
 

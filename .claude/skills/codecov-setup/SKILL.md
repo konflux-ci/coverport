@@ -58,7 +58,10 @@ These paths are relative to the skills directory (`.claude/skills/` or `.cursor/
 ### Modes and Targeting
 
 **Modes:**
-- `prepare` — adds disabled upload job + coverage flags + `.codecov.yml`; no instance URL needed
+- `prepare local` — clone each repo, apply all changes (coverage flags + disabled upload
+  job + `.codecov.yml`), commit locally, print a `git show HEAD` diff per repo — then stop.
+  No push, no MR. Use to review the exact changes before opening any PRs.
+- `prepare` — full prepare workflow: same as `prepare local` plus push and open MR/PR.
 - `enable` — removes disable guard, fills real instance URL from `codecov-config/CONFIG.md`
 - `full` (default) — fully enabled job + `.codecov.yml`; instance must be live
 
@@ -66,15 +69,13 @@ These paths are relative to the skills directory (`.claude/skills/` or `.cursor/
 - `--target <repo-url>` — single-repo mode; execute steps directly in this session
 - `--csv <path>` — bulk mode; read CSV, dispatch one subagent per repo in parallel
 
-**Dry run modes:**
-- **Fast dry run** — if the user says "dry run", "preview", or "what would change": infer
-  changes from the CSV data alone (no cloning). Shows which repos would be touched and what
-  flags/jobs would be added based on the declared language and CI system. Fast, zero network.
-- **Clone dry run** — if the user says "clone dry run", "deep dry run", or "show me the
-  exact diff": clone each repo to `/tmp/codecov-setup/<repo-name>`, inspect the real CI file
-  and package structure, compute the exact changes, print a per-repo diff — then stop before
-  committing, pushing, or opening any MR/PR. Slower but shows precise line-level changes.
-  See the Clone Dry Run Workflow section below.
+Both `prepare local` and `prepare` use the multi-subagent dispatch approach in bulk mode —
+one subagent per repo, all in parallel.
+
+**Fast dry run** — if the user says "dry run", "preview", or "what would change": infer
+changes from the CSV data alone (no cloning). Shows which repos would be touched and what
+flags/jobs would be added based on the declared language and CI system. Fast, zero network.
+No cloning.
 
 ### How to Invoke This Skill
 
@@ -89,8 +90,9 @@ targeting. Examples of real user prompts and how to interpret them:
 | "The Codecov instance is live, go through audit-q2.csv and enable everything" | enable | CSV |
 | "Set up Codecov for https://gitlab.cee.redhat.com/myteam/myservice — instance isn't ready yet" | prepare | single repo |
 | "Add Codecov to this repo, instance is already running" | full | single repo |
-| "Show me what would change for these repos without actually opening any PRs" | any (fast dry run) | CSV or single |
-| "Clone dry run for audit.csv" or "show me the exact diff before opening MRs" | any (clone dry run) | CSV or single |
+| "Show me what would change for these repos without opening any PRs" | fast dry run | CSV or single |
+| "Commit changes locally but don't push yet — I want to review the diffs first" | prepare local | CSV or single |
+| "prepare local for audit.csv" or "show me the exact diff before opening MRs" | prepare local | CSV or single |
 
 If the user doesn't mention a CSV path, ask for it before proceeding. If mode is
 ambiguous, ask whether the Codecov instance is available yet (prepare vs full).
@@ -211,48 +213,50 @@ The step-level `if: false` makes only this step inert — the rest of the workfl
 2. Replace `url: PLACEHOLDER` with `url: <real-instance-url>`.
 3. Remove the `if: false` line from the upload step.
 
-### Clone Dry Run Workflow
+### Prepare Local Workflow
 
-Clones every target repo, computes the exact changes, prints a per-repo diff, then stops
-— no commit, no push, no MR. Use before running real prepare/enable to verify the changes
-are correct.
+Clones every target repo, applies all prepare-mode changes, commits locally, prints a
+diff — then stops. No push, no MR. Use to review the exact changes before triggering
+`prepare` to open real MRs.
 
-In bulk mode, dispatch one subagent per repo simultaneously (same as real runs). Each
-subagent runs this workflow independently.
+In bulk mode, dispatch one subagent per repo simultaneously using the same multi-subagent
+approach as `prepare`. Each subagent runs this workflow independently.
 
-1. **Parse CSV / identify target** as in Bulk Dispatch step 1 (filter `Onboard=TRUE`, `Has Codecov ≠ TRUE`).
-2. **Announce:** "Clone dry run — found N repos. Cloning in parallel, no MRs will be opened."
-3. For each repo, execute steps 1–10 of the Prepare Mode Workflow (idempotency check through
-   `.codecov.yml` handling) **but stop before step 11 (commit)**. Do not run `git add`, `git
-   commit`, `git push`, or open any MR/PR.
-4. After computing all changes, print for each repo:
-
+1. **Parse CSV / identify target** as in Bulk Dispatch step 1 (filter `Onboard=TRUE`,
+   `Has Codecov ≠ TRUE`).
+2. **Announce:** "Prepare local — found N repos. Dispatching N subagents in parallel.
+   Changes will be committed locally; no MRs will be opened."
+3. For each repo, execute **steps 1–11 of the Prepare Mode Workflow** (idempotency check
+   through commit). Stop after `git commit` — do not push or open any MR/PR.
+4. After committing, print the per-repo diff:
+   ```bash
+   git show HEAD --stat --patch
+   ```
+   Output format per repo:
    ```
    === <repo-url> ===
-   Branch that would be created: add-codecov-config
+   Branch committed: add-codecov-config
+   Commit: chore: add codecov setup (disabled, pending internal instance)
 
-   .gitlab-ci.yml — coverage flags injected:
-   - Before: pytest tests/
-   + After:  pytest --cov=myservice --cov-report=xml:coverage.xml tests/
-
-   .gitlab-ci.yml — upload job appended:
-   + codecov-upload:
-   +   stage: test
-   +   variables:
-   +     CODECOV_URL: "PLACEHOLDER"
-   +   script: [...]
-   +   rules:
-   +     - when: never   # DISABLED
-
-   .codecov.yml — file would be created (did not exist).
+   diff --git a/.gitlab-ci.yml b/.gitlab-ci.yml
+   --- a/.gitlab-ci.yml
+   +++ b/.gitlab-ci.yml
+   @@ -12,6 +12,7 @@ test:
+      script:
+   -    - pytest tests/
+   +    - pytest --cov=myservice --cov-report=xml:coverage.xml tests/
+   +codecov-upload:
+   +  stage: test
+   +  ...
    ```
-
-5. Print the session summary (see Session Summary Format) with a `DRY RUN` header. Replace
-   "Opened MRs/PRs" with "Would open MRs/PRs".
-6. Clean up: `rm -rf /tmp/codecov-setup/<repo-name>` for each cloned repo.
+5. Print the session summary (see Session Summary Format) with a `PREPARE LOCAL` header.
+   Replace "Opened MRs/PRs" with "Committed locally (not pushed)".
+6. **Local clones remain** in `/tmp/codecov-setup/<repo-name>/` — inspect with
+   `git -C /tmp/codecov-setup/<repo-name> show HEAD` if needed. Run `prepare` when
+   ready to push and open real MRs (it re-clones fresh; local copies can be deleted).
 
 **Repos that need manual attention** (no test command found, C/C++, unknown language) are
-listed in the summary exactly as they would be in a real run.
+listed in the summary exactly as in a real `prepare` run.
 
 ### Prepare Mode Workflow
 
@@ -379,6 +383,9 @@ runs this workflow independently in bulk mode):
 
 ### Bulk Dispatch (CSV Mode)
 
+Used by `prepare local`, `prepare`, `enable`, and `full` modes when a CSV is provided.
+All modes dispatch one subagent per repo in parallel.
+
 1. **Parse CSV.** Filter to rows where `Onboard=TRUE` AND `Has Codecov` ≠ `TRUE`.
 2. **Check progress file:** If `.codecov-setup-progress.json` exists in the current working
    directory, skip any repo already recorded under the same mode.
@@ -386,7 +393,7 @@ runs this workflow independently in bulk mode):
 4. **Dispatch one subagent per repo simultaneously** (all in a single turn). Each subagent
    receives:
    - Repo URL, language, CI system (from the CSV row)
-   - Mode (prepare / enable / full)
+   - Mode (`prepare local` / `prepare` / `enable` / `full`)
    - Instance URL pre-read from `codecov-config/CONFIG.md` (for enable/full modes)
    - Instructions to execute this skill's single-repo workflow for that one repo only
    - Working directory: `/tmp/codecov-setup/<repo-name>/`
