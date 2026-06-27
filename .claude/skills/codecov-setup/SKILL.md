@@ -101,7 +101,8 @@ add the repo to the manual-attention list in the session summary.
 | Go | `-coverprofile=coverage.out -covermode=atomic` appended to `go test` | `coverage.out` |
 | Python | `--cov=<package> --cov-report=xml:coverage.xml` appended to `pytest` (see package detection below) | `coverage.xml` |
 | JavaScript | `--coverage` appended to `jest` or `vitest` | `coverage/lcov.info` |
-| TypeScript | `--coverage` appended to `jest` or `vitest` | `coverage/lcov.info` |
+| TypeScript (jest/vitest) | `--coverage` appended to `jest` or `vitest` | `coverage/lcov.info` |
+| TypeScript (Angular/Karma) | `--code-coverage` appended to `ng test --no-watch`; lcov at `coverage/<project-name>/lcov.info` — flag for manual attention: "verify headless Chrome is configured (`--browsers ChromeHeadless` or `karma.conf.js`) before enabling" | `coverage/<project-name>/lcov.info` |
 | C/C++ | Delegate entirely to `c-cpp-coverage` skill for the lcov pipeline | `coverage.info` |
 | Other | Insert `# TODO: add coverage flags for <language>` comment near test step | — |
 
