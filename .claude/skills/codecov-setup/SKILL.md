@@ -227,7 +227,8 @@ approach as `prepare`. Each subagent runs this workflow independently.
 2. **Announce:** "Prepare local — found N repos. Dispatching N subagents in parallel.
    Changes will be committed locally; no MRs will be opened."
 3. For each repo, execute **steps 1–11 of the Prepare Mode Workflow** (idempotency check
-   through commit). Stop after `git commit` — do not push or open any MR/PR.
+   through commit). Step 2 is a plain `git clone` — no `GITLAB_TOKEN` required.
+   Stop after `git commit` — do not execute step 12 (push/MR) or step 13.
 4. After committing, print the per-repo diff:
    ```bash
    git show HEAD --stat --patch
@@ -265,41 +266,15 @@ runs this workflow independently in bulk mode):
 
 1. **Idempotency check:** Search for an open MR/PR with branch name `add-codecov-config`.
    If one exists, skip this repo and add it to the "already prepared" list in the summary.
-2. **Access check — clone and verify push access:**
-   Determine whether you have direct push access to the repo before cloning:
-   - **GitHub:** `gh api repos/<org>/<repo>` — check `"permissions": {"push": true}`. If `false`, fork first:
-     ```bash
-     gh repo fork <org>/<repo> --clone --remote-name upstream
-     mv <repo> /tmp/codecov-setup/<repo-name>
-     cd /tmp/codecov-setup/<repo-name>
-     # origin = your fork, upstream = original; PR will target upstream default branch
-     ```
-   - **GitLab:** use the REST API with `$GITLAB_TOKEN` to check access level:
-     ```bash
-     # URL-encode the project path (replace / with %2F)
-     curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-       "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>" \
-       | python3 -c "import json,sys; d=json.load(sys.stdin); \
-           print(d.get('permissions',{}).get('project_access',{}).get('access_level', 0))"
-     ```
-     If the result is below 30 (Developer), fork via API then clone:
-     ```bash
-     FORK_URL=$(curl -s -X POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-       "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>/fork" \
-       | python3 -c "import json,sys; print(json.load(sys.stdin).get('http_url_to_repo',''))")
-     git clone "$FORK_URL" /tmp/codecov-setup/<repo-name>
-     cd /tmp/codecov-setup/<repo-name>
-     git remote add upstream <original-repo-url>
-     ```
-   - **If `$GITLAB_TOKEN` is not set:** clone directly and proceed;
-     if `git push` fails with a permission error, add the repo to the Needs Manual Attention
-     list with reason "push access denied — set GITLAB_TOKEN and re-run."
-
-   **Direct push (most internal repos):**
+2. **Clone the repo:**
    ```bash
    git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
    ```
+   No `GITLAB_TOKEN` needed to clone — internal GitLab repos (`gitlab.cee.redhat.com`) are
+   readable without a token. `GITLAB_TOKEN` is only required later in step 12 for push
+   access checking and MR creation. (`prepare local` stops before step 12 and never needs
+   a token.)
 3. **Create branch:**
    ```bash
    git checkout -b add-codecov-config
@@ -328,9 +303,42 @@ runs this workflow independently in bulk mode):
     git add -A
     git commit -m "chore: add codecov setup (disabled, pending internal instance)"
     ```
-12. **Push and open MR/PR** using the platform-specific step from `add-codecov-yml/skill.md § 4`:
+12. **Check push access, then push and open MR/PR.**
+    This is the first step that requires credentials (`GITLAB_TOKEN` for GitLab,
+    `gh` auth for GitHub).
+
+    **Push access check (do this before `git push`):**
+    - **GitHub:** `gh api repos/<org>/<repo>` — check `"permissions": {"push": true}`.
+      If `false`, fork first:
+      ```bash
+      gh repo fork <org>/<repo> --clone --remote-name upstream
+      # origin = your fork, upstream = original; PR will target upstream default branch
+      ```
+    - **GitLab:** Check access level via the REST API:
+      ```bash
+      curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+        "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>" \
+        | python3 -c "import json,sys; d=json.load(sys.stdin); \
+            print(d.get('permissions',{}).get('project_access',{}).get('access_level', 0))"
+      ```
+      If below 30 (Developer), fork via API then add upstream remote:
+      ```bash
+      FORK_URL=$(curl -s -X POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+        "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>/fork" \
+        | python3 -c "import json,sys; print(json.load(sys.stdin).get('http_url_to_repo',''))")
+      git remote set-url origin "$FORK_URL"
+      git remote add upstream <original-repo-url>
+      ```
+    - **If `$GITLAB_TOKEN` is not set:** attempt `git push` directly; if it fails
+      with a permission error, add the repo to the Needs Manual Attention list with
+      reason "push access denied — set GITLAB_TOKEN and re-run."
+
+    **Push and open MR/PR** using the platform-specific step from `add-codecov-yml/skill.md § 4`:
+    ```bash
+    git push -u origin add-codecov-config
+    ```
     - GitHub repos: use `gh pr create`
-    - GitLab repos: use `glab mr create` (or GitLab web UI if `glab` is unavailable)
+    - GitLab repos: use `curl` to create the MR via the GitLab REST API
     - MR/PR title: `chore: add Codecov coverage config (disabled — pending internal instance)`
     - MR/PR body: see PR Description Template section below
 13. **Record** the MR/PR URL in the session summary.
@@ -341,8 +349,13 @@ runs this workflow independently in bulk mode):
    stop and report: "Instance URL is not set in codecov-config/CONFIG.md — cannot run enable mode."
 2. **Idempotency check:** Search for an open MR/PR with branch `enable-codecov-coverage`.
    If found, skip and add to the "already enabled" list.
-3. **Clone** the repo to `/tmp/codecov-setup/<repo-name>`, applying the same access check
-   from Prepare Mode step 2 (direct push or fork as needed).
+3. **Clone** the repo:
+   ```bash
+   git clone <repo-url> /tmp/codecov-setup/<repo-name>
+   cd /tmp/codecov-setup/<repo-name>
+   ```
+   No token needed to clone. Push access check and fork logic (if needed) are deferred
+   to step 8 (same as Prepare Mode step 12).
 4. **Verify** the disabled upload step/job is present in the default branch:
    - GitLab: look for a job block containing `when: never`
    - GitHub: look for `if: false` on a step named `Upload coverage to Codecov` in the primary test workflow
