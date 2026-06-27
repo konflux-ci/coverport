@@ -1,45 +1,24 @@
 ---
 name: codecov-setup
 description: >-
-  Automated, non-interactive Codecov onboarding driven by an audit CSV. Unlike
-  codecov-onboarding (which asks questions interactively for one repo at a time),
-  codecov-setup reads pre-collected audit data and opens PRs/MRs with zero Q&A —
-  across one repo or hundreds in parallel. Use when you have an audit CSV or need
-  bulk processing. Triggers on: "setup codecov for all repos", "bulk codecov",
-  "prepare codecov PRs", "enable codecov", "codecov setup from audit",
-  "onboard repos to codecov".
+  Automated, non-interactive Codecov onboarding driven by an audit CSV. Reads
+  pre-collected audit data and opens PRs/MRs with zero Q&A — across one repo or
+  hundreds in parallel. Supports a two-phase rollout: prepare (disabled CI job,
+  safe to merge now) and enable (activates once instance is live). Use when you
+  have an audit CSV or need bulk processing. Triggers on: "setup codecov for all
+  repos", "bulk codecov", "prepare codecov PRs", "enable codecov", "codecov from
+  audit", "onboard repos to codecov", "open prepare MRs", "enable coverage".
 ---
 
 # Codecov Setup Skill
 
-Non-interactive, data-driven version of `codecov-onboarding`. Uses audit CSV data to
-pre-answer every question `codecov-onboarding` would ask interactively, producing a
-complete, ready-to-merge PR per repo.
+Non-interactive, CSV-driven Codecov onboarding. Reads an audit CSV (from
+`coverage-audit`) and opens one PR/MR per repo automatically — no Q&A required.
+Two-phase rollout: **prepare** (disabled CI job + coverage flags + `.codecov.yml`,
+zero CI impact) then **enable** (removes disable guard, sets real instance URL).
 
-## What is codecov-setup?
-
-`codecov-setup` is the bulk automation layer for Codecov onboarding. Where
-`codecov-onboarding` guides a developer through setup interactively for a single repo,
-`codecov-setup` reads an audit CSV (produced by `coverage-audit`) and opens one PR per
-repo automatically — with no interactive Q&A required.
-
-It supports a two-phase rollout:
-- **Prepare phase** — adds a disabled CI upload job + coverage flags + `.codecov.yml` to
-  every repo now, before the Codecov instance is available. Zero CI impact.
-- **Enable phase** — removes the disable guard and sets the real instance URL once the
-  Codecov instance is live.
-
-## When to Use This Skill
-
-Use this skill when:
-- You have an audit CSV (from `coverage-audit`) and want to open Codecov PRs for all
-  `Onboard=TRUE` repos in one operation
-- You want to prepare repos now and activate them later when the Codecov instance is ready
-- You need single-repo Codecov setup without interactive guidance
-
-Do not use this skill for:
-- Interactive, guided onboarding of a single repo — use `codecov-onboarding`
-- E2e container instrumentation — use `coverport-integration`
+Do not use for interactive single-repo guidance (`codecov-onboarding`) or E2E
+container instrumentation (`coverport-integration`).
 
 ## Prerequisites
 
@@ -216,48 +195,24 @@ The step-level `if: false` makes only this step inert — the rest of the workfl
 ### Prepare Local Workflow
 
 Clones every target repo, applies all prepare-mode changes, commits locally, prints a
-diff — then stops. No push, no MR. Use to review the exact changes before triggering
-`prepare` to open real MRs.
+diff — then stops. No push, no MR.
 
-In bulk mode, dispatch one subagent per repo simultaneously using the same multi-subagent
-approach as `prepare`. Each subagent runs this workflow independently.
+In bulk mode, dispatch one subagent per repo simultaneously (same approach as `prepare`).
 
-1. **Parse CSV / identify target** as in Bulk Dispatch step 1 (filter `Onboard=TRUE`,
-   `Has Codecov ≠ TRUE`).
-2. **Announce:** "Prepare local — found N repos. Dispatching N subagents in parallel.
-   Changes will be committed locally; no MRs will be opened."
-3. For each repo, execute **steps 1–11 of the Prepare Mode Workflow** (idempotency check
-   through commit). Step 2 is a plain `git clone` — no `GITLAB_TOKEN` required.
-   Stop after `git commit` — do not execute step 12 (push/MR) or step 13.
+1. **Parse CSV / identify target** (filter `Onboard=TRUE`, `Has Codecov ≠ TRUE`).
+2. **Announce:** "Prepare local — found N repos. Dispatching N subagents in parallel. No MRs will be opened."
+3. Execute **Prepare Mode Workflow steps 1–11** for each repo. Step 2 is a plain
+   `git clone` — no `GITLAB_TOKEN` needed. Stop after commit; skip step 12 (push/MR).
 4. After committing, print the per-repo diff:
    ```bash
    git show HEAD --stat --patch
    ```
-   Output format per repo:
-   ```
-   === <repo-url> ===
-   Branch committed: add-codecov-config
-   Commit: chore: add codecov setup (disabled, pending internal instance)
+5. Print the session summary with a `PREPARE LOCAL` header; replace "Opened MRs/PRs"
+   with "Committed locally (not pushed)".
+6. Local clones remain in `/tmp/codecov-setup/<repo-name>/`. Run `prepare` when ready
+   to push (it re-clones fresh).
 
-   diff --git a/.gitlab-ci.yml b/.gitlab-ci.yml
-   --- a/.gitlab-ci.yml
-   +++ b/.gitlab-ci.yml
-   @@ -12,6 +12,7 @@ test:
-      script:
-   -    - pytest tests/
-   +    - pytest --cov=myservice --cov-report=xml:coverage.xml tests/
-   +codecov-upload:
-   +  stage: test
-   +  ...
-   ```
-5. Print the session summary (see Session Summary Format) with a `PREPARE LOCAL` header.
-   Replace "Opened MRs/PRs" with "Committed locally (not pushed)".
-6. **Local clones remain** in `/tmp/codecov-setup/<repo-name>/` — inspect with
-   `git -C /tmp/codecov-setup/<repo-name> show HEAD` if needed. Run `prepare` when
-   ready to push and open real MRs (it re-clones fresh; local copies can be deleted).
-
-**Repos that need manual attention** (no test command found, C/C++, unknown language) are
-listed in the summary exactly as in a real `prepare` run.
+Manual-attention repos are listed in the summary as in a real `prepare` run.
 
 ### Prepare Mode Workflow
 
@@ -271,10 +226,8 @@ runs this workflow independently in bulk mode):
    git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
    ```
-   No `GITLAB_TOKEN` needed to clone — internal GitLab repos (`gitlab.cee.redhat.com`) are
-   readable without a token. `GITLAB_TOKEN` is only required later in step 12 for push
-   access checking and MR creation. (`prepare local` stops before step 12 and never needs
-   a token.)
+   No token needed to clone. `GITLAB_TOKEN` is only required at step 12 (push/MR).
+   `prepare local` stops at step 11 and never needs a token.
 3. **Create branch:**
    ```bash
    git checkout -b add-codecov-config
@@ -354,8 +307,7 @@ runs this workflow independently in bulk mode):
    git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
    ```
-   No token needed to clone. Push access check and fork logic (if needed) are deferred
-   to step 8 (same as Prepare Mode step 12).
+   No token needed to clone. Push access check is deferred to step 8.
 4. **Verify** the disabled upload step/job is present in the default branch:
    - GitLab: look for a job block containing `when: never`
    - GitHub: look for `if: false` on a step named `Upload coverage to Codecov` in the primary test workflow
@@ -437,54 +389,33 @@ Never open a duplicate MR/PR. Always report skips in the summary.
 
 ### PR Description Template (Prepare Mode)
 
-Use the platform-appropriate body below. Include only the section matching the repo's
-platform — do not include both.
+Use the platform-appropriate body. Include only the matching section.
 
 **GitLab MR body:**
-
 ```markdown
 ## Codecov Setup (Disabled — Pending Internal Instance)
 
-This MR adds Codecov coverage infrastructure. The upload job is **disabled** and will not
-affect current CI pipelines until the enable MR is merged.
+The upload job is **disabled** (`when: never`) — zero CI impact until the enable MR is merged.
 
-### What was added
-- Coverage generation flags added to the existing test command in CI
-- `codecov-upload` job added (disabled via `when: never`)
-- `.codecov.yml` configuration file
+**Added:** coverage flags in test command · `codecov-upload` job (disabled) · `.codecov.yml`
 
-### Authentication setup
-Before the enable MR is merged, add a `CODECOV_TOKEN` CI/CD variable to this project.
-Token-based auth is required for internal GitLab repos — OIDC is not available for
-GitLab CI. See `codecov-config/CONFIG.md` in the coverport repo for the token value
-and setup steps.
+**Before enable MR:** add `CODECOV_TOKEN` as a masked CI/CD variable. Token auth is
+required for GitLab CI (OIDC unavailable). See `codecov-config/CONFIG.md` for the value.
 
-### What happens next
-A follow-up MR will remove the disable guard and set the instance URL once the internal
-Codecov instance is ready. No further changes to this repo will be needed at that point.
+**Next:** a follow-up MR will remove the disable guard and set the instance URL.
 ```
 
 **GitHub PR body:**
-
 ```markdown
 ## Codecov Setup (Disabled — Pending Internal Instance)
 
-This PR adds Codecov coverage infrastructure. The upload job is **disabled** and will not
-affect current CI pipelines until the enable PR is merged.
+The upload step is **disabled** (`if: false`) — zero CI impact until the enable PR is merged.
 
-### What was added
-- Coverage generation flags added to the existing test command in CI
-- `Upload coverage to Codecov` step added to the existing test workflow (disabled via `if: false`)
-- `.codecov.yml` configuration file
+**Added:** coverage flags in test command · `Upload coverage to Codecov` step (disabled) · `.codecov.yml`
 
-### Authentication setup
-Before the enable PR is merged, confirm authentication is configured for this repo with
-the Codecov instance. See `codecov-config/CONFIG.md` in the coverport repo for the
-current auth method — OIDC is preferred where supported.
+**Auth:** confirm the repo is configured with the Codecov instance per `codecov-config/CONFIG.md`.
 
-### What happens next
-A follow-up PR will remove the disable guard and set the instance URL once the internal
-Codecov instance is ready. No further changes to this repo will be needed at that point.
+**Next:** a follow-up PR will remove `if: false` and set the instance URL.
 ```
 
 ### Session Summary Format
