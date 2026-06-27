@@ -109,21 +109,13 @@ add the repo to the manual-attention list in the session summary.
 argument (e.g., `./...`, `./pkg/...`, a directory like `tests/`). For test runners where
 no such trailing argument exists, append at the end. Never replace any part of the command.
 
-**Python via tox:** Many Python repos invoke pytest through tox rather than directly in CI
-(`tox -e test` in `.gitlab-ci.yml`). In this case, find the `[testenv]` section in
-`tox.ini` and apply changes there instead. Follow these conservative rules:
+> **Tox repos:** If the CI job runs `tox -e <env>` rather than pytest directly, apply
+> changes to `tox.ini` instead of `.gitlab-ci.yml`. Only add
+> `--cov-report=xml:coverage.xml` if XML output is absent — **do not change any existing
+> `--cov=` target or tox substitution** (`{toxinidir}`, `{[vars]MODULE}`, etc.). Those
+> were set intentionally by the maintainer and must be left untouched.
 
-- **Only add `--cov-report=xml:coverage.xml`** if XML output is not already present. This
-  is the only change required to produce the artifact the upload job needs.
-- **Do not change `--cov=` targets.** Leave existing values like `--cov={toxinidir}`,
-  `--cov={[vars]MODULE}`, or `--cov=<package>` exactly as they are. The existing coverage
-  scope was set intentionally by the repo maintainer.
-- **Do not replace tox substitutions** (`{toxinidir}`, `{toxinidir}`, `{[vars]X}`) with
-  literal values. These are standard tox idioms — leave them untouched.
-- If `--cov-report=xml` is already present (with or without a path), skip tox.ini entirely.
-
-**Python package detection (for `--cov=<package>`):** Only needed when pytest is called
-directly in CI (not via tox) and `--cov` is absent. Determine the package name in this order:
+**Python package detection (for `--cov=<package>`):** Determine the package name in this order:
 1. If the existing `pytest` command already contains `--cov=<something>`, extract that value and reuse it (do not duplicate).
 2. Look for a top-level directory containing an `__init__.py` file — that is the package name (e.g. `src/mypackage/__init__.py` → `--cov=mypackage`).
 3. Check `setup.py`, `pyproject.toml`, or `setup.cfg` for the declared package name.
@@ -135,18 +127,10 @@ Before: go test ./...
 After:  go test -coverprofile=coverage.out -covermode=atomic ./...
 ```
 
-Example (Python direct — flags inserted before trailing `tests/`):
+Example (Python — flags inserted before trailing `tests/`):
 ```
 Before: pytest tests/
 After:  pytest --cov=myservice --cov-report=xml:coverage.xml tests/
-```
-
-Example (Python via tox — only XML report added, nothing else changed):
-```
-# tox.ini before:
-commands = pytest --cov={toxinidir} --cov-report=term-missing {posargs}
-# tox.ini after:
-commands = pytest --cov={toxinidir} --cov-report=term-missing --cov-report=xml:coverage.xml {posargs}
 ```
 
 If coverage flags are already present in the command, skip this step and note it in the summary.
