@@ -142,29 +142,32 @@ EOF
 )"
 ```
 
-**GitLab — open MR with `glab`:**
+**GitLab — open MR with `curl`:**
+
+Requires `GITLAB_TOKEN` (a personal access token with `api` scope) and the GitLab host URL.
+
 ```bash
-glab mr create \
-  --title "Add .codecov.yml configuration" \
-  --description "$(cat <<'EOF'
-## Summary
+GITLAB_HOST="https://gitlab.cee.redhat.com"   # adjust to your instance
+PROJECT_PATH=$(git remote get-url origin \
+  | sed 's|.*'"$GITLAB_HOST"'/||;s|\.git$||' \
+  | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip(), safe=''))")
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||')
 
-- Adds `.codecov.yml` with standard Konflux coverage settings
-- Project coverage target: <project_target> (threshold: <project_threshold>)
-- Patch coverage target: <patch_target> (threshold: <patch_threshold>)
-
-## Reference
-
-Based on [konflux-ui/.codecov.yml](https://github.com/konflux-ci/konflux-ui/blob/main/.codecov.yml)
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)" \
-  --source-branch "$BRANCH" \
-  --target-branch "$(git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||')"
+curl -s -X POST \
+  --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  --header "Content-Type: application/json" \
+  --data "{
+    \"source_branch\": \"$BRANCH\",
+    \"target_branch\": \"$DEFAULT_BRANCH\",
+    \"title\": \"Add .codecov.yml configuration\",
+    \"description\": \"## Summary\n\n- Adds \`.codecov.yml\` with standard Konflux coverage settings\n- Project coverage target: <project_target> (threshold: <project_threshold>)\n- Patch coverage target: <patch_target>\n\n## Reference\n\nBased on [konflux-ui/.codecov.yml](https://github.com/konflux-ci/konflux-ui/blob/main/.codecov.yml)\",
+    \"remove_source_branch\": true
+  }" \
+  "$GITLAB_HOST/api/v4/projects/$PROJECT_PATH/merge_requests" \
+  | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('web_url', r))"
 ```
 
-If `glab` is not available, open the MR manually: in the GitLab web UI, navigate to the repository → Merge Requests → New merge request → select branch `add-codecov-yml` and submit with the title and description above.
+The last line prints the MR URL. If `GITLAB_TOKEN` is not set, open the MR manually: in the GitLab web UI, navigate to the repository → Merge Requests → New merge request → select branch `add-codecov-yml` and submit with the title and description above.
 
 ### 5. Report back
 
@@ -179,6 +182,13 @@ rm -rf "$WORKDIR"
 ## Common Issues
 
 - **GitHub — fork required**: If the user doesn't have push access, fork first with `gh repo fork "$REPO" --clone`
-- **GitLab — fork required**: If the user doesn't have push access, fork with `glab repo fork <repo-url>` or use the GitLab web UI (Fork button on the project page)
+- **GitLab — fork required**: If the user doesn't have push access, fork via the API:
+  ```bash
+  curl -s -X POST \
+    --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+    "$GITLAB_HOST/api/v4/projects/<url-encoded-path>/fork" \
+    | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('http_url_to_repo',''))"
+  ```
+  Clone the fork URL from the output, add the original as `upstream`, then open the MR targeting the upstream project ID using the `merge_requests` API endpoint above.
 - **Branch already exists**: Append a timestamp — `add-codecov-yml-$(date +%s)`
 - **Go repos**: The default `ignore` pattern targets TypeScript test data (`**/*__data__*/*.ts`). For Go repos, ask the user if they want to adjust ignore patterns (e.g. `**/testdata/**`, `**/*_test.go`)

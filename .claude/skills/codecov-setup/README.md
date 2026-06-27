@@ -44,10 +44,10 @@ Produced by the `coverage-audit` skill. Must contain these columns:
 | Tool | Used for | Install |
 |---|---|---|
 | `gh` | GitHub repos — access check, clone, fork, open PR | `dnf install gh` / [brew](https://cli.github.com) |
-| `glab` | GitLab repos — access check, fork, open MR | `dnf install glab` / [binary](https://gitlab.com/gitlab-org/cli) |
+| `curl` | GitLab repos — access check, fork, open MR via REST API | Pre-installed on most systems |
 | `git` | All platforms | Pre-installed on most systems |
 
-**No `glab`?** The skill falls back to direct `curl` calls against the GitLab REST API.
+GitLab operations use `curl` against the GitLab REST API directly — no `glab` needed.
 Set `GITLAB_TOKEN` in your environment:
 ```bash
 export GITLAB_TOKEN=<your-personal-access-token>

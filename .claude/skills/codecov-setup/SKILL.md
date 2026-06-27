@@ -219,15 +219,7 @@ runs this workflow independently in bulk mode):
      cd /tmp/codecov-setup/<repo-name>
      # origin = your fork, upstream = original; PR will target upstream default branch
      ```
-   - **GitLab with `glab`:** `glab api projects/<url-encoded-path>` — check `"access_level"` ≥ 30 (Developer).
-     If below 30, fork first:
-     ```bash
-     glab repo fork <repo-url>
-     git clone <your-fork-url> /tmp/codecov-setup/<repo-name>
-     cd /tmp/codecov-setup/<repo-name>
-     git remote add upstream <original-repo-url>
-     ```
-   - **GitLab without `glab` (curl fallback):** use the REST API directly with `$GITLAB_TOKEN`:
+   - **GitLab:** use the REST API with `$GITLAB_TOKEN` to check access level:
      ```bash
      # URL-encode the project path (replace / with %2F)
      curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
@@ -235,15 +227,18 @@ runs this workflow independently in bulk mode):
        | python3 -c "import json,sys; d=json.load(sys.stdin); \
            print(d.get('permissions',{}).get('project_access',{}).get('access_level', 0))"
      ```
-     If the result is below 30, fork via API:
+     If the result is below 30 (Developer), fork via API then clone:
      ```bash
-     curl -s -X POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-       "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>/fork"
-     # clone the fork URL from the response, add upstream remote manually
+     FORK_URL=$(curl -s -X POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+       "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>/fork" \
+       | python3 -c "import json,sys; print(json.load(sys.stdin).get('http_url_to_repo',''))")
+     git clone "$FORK_URL" /tmp/codecov-setup/<repo-name>
+     cd /tmp/codecov-setup/<repo-name>
+     git remote add upstream <original-repo-url>
      ```
-   - **If neither `glab` nor `$GITLAB_TOKEN` is available:** clone directly and proceed;
+   - **If `$GITLAB_TOKEN` is not set:** clone directly and proceed;
      if `git push` fails with a permission error, add the repo to the Needs Manual Attention
-     list with reason "push access denied — set GITLAB_TOKEN or install glab and re-run."
+     list with reason "push access denied — set GITLAB_TOKEN and re-run."
 
    **Direct push (most internal repos):**
    ```bash
