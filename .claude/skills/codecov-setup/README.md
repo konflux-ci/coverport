@@ -138,12 +138,23 @@ Set up Codecov for https://gitlab.cee.redhat.com/myteam/myservice — the
 instance isn't ready yet. It's a Go service using .gitlab-ci.yml.
 ```
 
-### Dry run (preview only)
+### Fast dry run (CSV-based preview, no cloning)
 
 ```
 Show me what would change for the repos in ~/audit.csv without actually
 opening any PRs.
 ```
+
+### Clone dry run (exact diff, no MRs opened)
+
+```
+Clone dry run for ~/audit.csv — show me the exact line-level diff for
+each repo before we open any MRs.
+```
+
+Clones every repo to `/tmp`, inspects the real CI files and package
+structure, prints the precise before/after diff per repo, then stops
+— no commit, no push, no MR opened.
 
 ---
 

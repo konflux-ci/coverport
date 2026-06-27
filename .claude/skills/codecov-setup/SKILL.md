@@ -66,8 +66,15 @@ These paths are relative to the skills directory (`.claude/skills/` or `.cursor/
 - `--target <repo-url>` — single-repo mode; execute steps directly in this session
 - `--csv <path>` — bulk mode; read CSV, dispatch one subagent per repo in parallel
 
-**Dry run:** If the user says "dry run" or "preview", print what would change per repo
-without cloning or opening any PRs/MRs.
+**Dry run modes:**
+- **Fast dry run** — if the user says "dry run", "preview", or "what would change": infer
+  changes from the CSV data alone (no cloning). Shows which repos would be touched and what
+  flags/jobs would be added based on the declared language and CI system. Fast, zero network.
+- **Clone dry run** — if the user says "clone dry run", "deep dry run", or "show me the
+  exact diff": clone each repo to `/tmp/codecov-setup/<repo-name>`, inspect the real CI file
+  and package structure, compute the exact changes, print a per-repo diff — then stop before
+  committing, pushing, or opening any MR/PR. Slower but shows precise line-level changes.
+  See the Clone Dry Run Workflow section below.
 
 ### How to Invoke This Skill
 
@@ -82,7 +89,8 @@ targeting. Examples of real user prompts and how to interpret them:
 | "The Codecov instance is live, go through audit-q2.csv and enable everything" | enable | CSV |
 | "Set up Codecov for https://gitlab.cee.redhat.com/myteam/myservice — instance isn't ready yet" | prepare | single repo |
 | "Add Codecov to this repo, instance is already running" | full | single repo |
-| "Show me what would change for these repos without actually opening any PRs" | any (dry run) | CSV or single |
+| "Show me what would change for these repos without actually opening any PRs" | any (fast dry run) | CSV or single |
+| "Clone dry run for audit.csv" or "show me the exact diff before opening MRs" | any (clone dry run) | CSV or single |
 
 If the user doesn't mention a CSV path, ask for it before proceeding. If mode is
 ambiguous, ask whether the Codecov instance is available yet (prepare vs full).
@@ -202,6 +210,49 @@ The step-level `if: false` makes only this step inert — the rest of the workfl
 1. Read the real Codecov instance URL from `codecov-config/CONFIG.md`.
 2. Replace `url: PLACEHOLDER` with `url: <real-instance-url>`.
 3. Remove the `if: false` line from the upload step.
+
+### Clone Dry Run Workflow
+
+Clones every target repo, computes the exact changes, prints a per-repo diff, then stops
+— no commit, no push, no MR. Use before running real prepare/enable to verify the changes
+are correct.
+
+In bulk mode, dispatch one subagent per repo simultaneously (same as real runs). Each
+subagent runs this workflow independently.
+
+1. **Parse CSV / identify target** as in Bulk Dispatch step 1 (filter `Onboard=TRUE`, `Has Codecov ≠ TRUE`).
+2. **Announce:** "Clone dry run — found N repos. Cloning in parallel, no MRs will be opened."
+3. For each repo, execute steps 1–10 of the Prepare Mode Workflow (idempotency check through
+   `.codecov.yml` handling) **but stop before step 11 (commit)**. Do not run `git add`, `git
+   commit`, `git push`, or open any MR/PR.
+4. After computing all changes, print for each repo:
+
+   ```
+   === <repo-url> ===
+   Branch that would be created: add-codecov-config
+
+   .gitlab-ci.yml — coverage flags injected:
+   - Before: pytest tests/
+   + After:  pytest --cov=myservice --cov-report=xml:coverage.xml tests/
+
+   .gitlab-ci.yml — upload job appended:
+   + codecov-upload:
+   +   stage: test
+   +   variables:
+   +     CODECOV_URL: "PLACEHOLDER"
+   +   script: [...]
+   +   rules:
+   +     - when: never   # DISABLED
+
+   .codecov.yml — file would be created (did not exist).
+   ```
+
+5. Print the session summary (see Session Summary Format) with a `DRY RUN` header. Replace
+   "Opened MRs/PRs" with "Would open MRs/PRs".
+6. Clean up: `rm -rf /tmp/codecov-setup/<repo-name>` for each cloned repo.
+
+**Repos that need manual attention** (no test command found, C/C++, unknown language) are
+listed in the summary exactly as they would be in a real run.
 
 ### Prepare Mode Workflow
 
