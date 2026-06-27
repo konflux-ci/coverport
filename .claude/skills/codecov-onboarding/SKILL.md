@@ -781,6 +781,11 @@ pip install pytest-cov
 pytest --cov=<package> --cov-report=xml:coverage.xml
 ```
 
+> **If the repo uses tox** (`tox -e test` in CI), add flags to the `[testenv]` section of
+> `tox.ini` instead of the CI file. Only add `--cov-report=xml:coverage.xml` if XML output
+> is not already present — do not change existing `--cov=` targets or tox substitutions
+> (`{toxinidir}`, `{[vars]MODULE}`, etc.) that the maintainer set intentionally.
+
 ### TypeScript/JavaScript
 
 ```bash
