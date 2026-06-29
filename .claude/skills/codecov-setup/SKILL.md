@@ -1,13 +1,12 @@
 ---
 name: codecov-setup
 description: >-
-  Automated, non-interactive Codecov onboarding driven by an audit CSV. Reads
-  pre-collected audit data and opens PRs/MRs with zero Q&A — across one repo or
-  hundreds in parallel. Supports a two-phase rollout: prepare (disabled CI job,
-  safe to merge now) and enable (activates once instance is live). Use when you
-  have an audit CSV or need bulk processing. Triggers on: "setup codecov for all
-  repos", "bulk codecov", "prepare codecov PRs", "enable codecov", "codecov from
-  audit", "onboard repos to codecov", "open prepare MRs", "enable coverage".
+  Use when bulk-onboarding multiple repos to Codecov from an audit CSV,
+  or when user says "bulk codecov", "prepare codecov PRs", "enable codecov",
+  "codecov from audit", "onboard repos to codecov", "open prepare MRs",
+  "enable coverage for all repos", "prepare local for audit.csv". Not for
+  single-repo interactive onboarding (codecov-onboarding) or E2E
+  instrumentation (coverport-integration).
 ---
 
 # Codecov Setup Skill
@@ -28,7 +27,7 @@ Before executing any steps, read these files in order:
 2. `codecov-onboarding/SKILL.md` — GitLab CI job template (Option C) and GitHub Actions
    step template (Option A); read at runtime, do not copy here
 3. `add-codecov-yml/skill.md` — `.codecov.yml` template, compliance rules, and
-   platform-specific PR (GitHub via `gh`) and MR (GitLab via `glab`) creation steps
+   platform-specific PR (GitHub via `gh`) and MR (GitLab via `curl`) creation steps
 
 These paths are relative to the skills directory (`.claude/skills/` or `.cursor/skills/` — both resolve to the same location).
 
@@ -48,19 +47,17 @@ These paths are relative to the skills directory (`.claude/skills/` or `.cursor/
 - `--target <repo-url>` — single-repo mode; execute steps directly in this session
 - `--csv <path>` — bulk mode; read CSV, dispatch one subagent per repo in parallel
 
-Both `prepare local` and `prepare` use the multi-subagent dispatch approach in bulk mode —
-one subagent per repo, all in parallel.
+All bulk modes (`prepare local`, `prepare`, `enable`, `full`) use the batched multi-subagent
+dispatch approach — one subagent per repo, in parallel waves of up to `batch_size` (default:
+15). Pass `--batch-size <N>` to override.
 
 **Fast dry run** — if the user says "dry run", "preview", or "what would change": infer
 changes from the CSV data alone (no cloning). Shows which repos would be touched and what
 flags/jobs would be added based on the declared language and CI system. Fast, zero network.
-No cloning.
 
 ### How to Invoke This Skill
 
-This is a natural language skill — users describe what they want, not CLI commands.
-Recognize the user's intent from their message and map it to the appropriate mode and
-targeting. Examples of real user prompts and how to interpret them:
+Recognize the user's intent and map it to the appropriate mode and targeting:
 
 | User says | Mode | Targeting |
 |---|---|---|
@@ -82,7 +79,7 @@ Produced by `coverage-audit`. Required columns:
 
 | Column | Description |
 |---|---|
-| `Repo URL` | Full HTTPS URL to the repository |
+| `URL` | Full HTTPS URL to the repository |
 | `Onboard` | `TRUE` to include this repo |
 | `Language` | Primary language: Go, Python, JavaScript, TypeScript, C, C++ |
 | `CI System` | `gitlab-ci` or `github-actions` |
@@ -93,52 +90,73 @@ Process only rows where `Onboard=TRUE` AND `Has Codecov` is not `TRUE`.
 ### Coverage Flag Detection
 
 Find the existing test command in the CI config file and inject coverage flags.
-If no test command is found for the repo's language, insert a `# TODO` comment and
-add the repo to the manual-attention list in the session summary.
+If no test command is found, insert a `# TODO` comment and add the repo to the
+manual-attention list.
 
-| Language | Flags to append to existing test command | Coverage output file |
+| Language | Action | Coverage output file |
 |---|---|---|
-| Go | `-coverprofile=coverage.out -covermode=atomic` appended to `go test` | `coverage.out` |
-| Python | `--cov=<package> --cov-report=xml:coverage.xml` appended to `pytest` (see package detection below) | `coverage.xml` |
-| JavaScript | `--coverage` appended to `jest` or `vitest` | `coverage/lcov.info` |
-| TypeScript (jest/vitest) | `--coverage` appended to `jest` or `vitest` | `coverage/lcov.info` |
-| TypeScript (Angular/Karma) | `--code-coverage` appended to `ng test --no-watch`; lcov at `coverage/<project-name>/lcov.info` — flag for manual attention: "verify headless Chrome is configured (`--browsers ChromeHeadless` or `karma.conf.js`) before enabling" | `coverage/<project-name>/lcov.info` |
-| C/C++ | Delegate entirely to `c-cpp-coverage` skill for the lcov pipeline | `coverage.info` |
-| Other | Insert `# TODO: add coverage flags for <language>` comment near test step | — |
+| Go | Append `-coverprofile=coverage.out -covermode=atomic` to `go test` | `coverage.out` |
+| Python (pytest) | Append `--cov=<package> --cov-report=xml:coverage.xml` to `pytest` — see Python notes | `coverage.xml` |
+| Python (unittest) | Replace `python -m unittest <args>` with three `coverage.py` lines — see Python notes; do **not** migrate to pytest | `coverage.xml` |
+| JavaScript | Append `--coverage` to `jest` or `vitest` | `coverage/lcov.info` |
+| TypeScript (jest/vitest) | Append `--coverage` to `jest` or `vitest` | `coverage/lcov.info` |
+| TypeScript (Angular/Karma) | Append `--code-coverage` to `ng test --no-watch`; lcov at `coverage/<project-name>/lcov.info` — flag for manual attention: "verify headless Chrome configured (`--browsers ChromeHeadless` or `karma.conf.js`) before enabling" | `coverage/<project-name>/lcov.info` |
+| C/C++ | Delegate entirely to `c-cpp-coverage` skill | `coverage.info` |
+| Other | Insert `# TODO: add coverage flags for <language>` near test step | — |
 
-**Injection rule:** Insert coverage flags immediately before any trailing package or path
-argument (e.g., `./...`, `./pkg/...`, a directory like `tests/`). For test runners where
-no such trailing argument exists, append at the end. Never replace any part of the command.
+**General injection rule:** Insert flags immediately before any trailing package/path argument
+(`./...`, `./pkg/...`, `tests/`). If no trailing argument exists, append at the end. Never
+replace any part of the existing command. If flags are already present, skip and note in summary.
 
-> **Tox repos:** If the CI job runs `tox -e <env>` rather than pytest directly, apply
-> changes to `tox.ini` instead of `.gitlab-ci.yml`. Only add
-> `--cov-report=xml:coverage.xml` if XML output is absent — **do not change any existing
-> `--cov=` target or tox substitution** (`{toxinidir}`, `{[vars]MODULE}`, etc.). Those
-> were set intentionally by the maintainer and must be left untouched.
+#### Python Notes
 
-**Python package detection (for `--cov=<package>`):** Determine the package name in this order:
-1. If the existing `pytest` command already contains `--cov=<something>`, extract that value and reuse it (do not duplicate).
-2. Look for a top-level directory containing an `__init__.py` file — that is the package name (e.g. `src/mypackage/__init__.py` → `--cov=mypackage`).
-3. Check `setup.py`, `pyproject.toml`, or `setup.cfg` for the declared package name.
-4. If none of the above yields a clear answer, use `--cov=. --cov-report=xml:coverage.xml` and insert a `# TODO: replace . with the actual package name` comment on the same line; add the repo to the manual-attention list.
+**pytest — package detection (for `--cov=<package>`):**
+Applies **only when pytest is called directly** (not via tox — see tox section below).
+Determine the package name in this order:
+1. Existing `--cov=<something>` in the pytest command → reuse it, do not duplicate.
+2. Top-level directory containing `__init__.py` → use that name (e.g. `src/mypackage/__init__.py` → `--cov=mypackage`).
+3. `setup.py`, `pyproject.toml`, or `setup.cfg` declared package name.
+4. None found → use `--cov=. --cov-report=xml:coverage.xml` with `# TODO: replace . with the actual package name` on the same line; add to manual-attention list.
 
-Example (Go — flags inserted before trailing `./...`):
+**pytest — `pytest-cov` availability:** Verify before injecting `--cov` flags:
+- `pip install -r requirements*.txt` install → check if `pytest-cov` is in the file; if absent, add `- pip install pytest-cov` as a separate line immediately before the pytest command.
+- Explicit `pip install` line → append `pytest-cov` to it.
+- Tox → add `pytest-cov` to the `deps` list in the relevant `[testenv]` section.
+
+**unittest runner:** `coverage.py` wraps `unittest` directly — no pytest migration needed.
+Replace the existing `python -m unittest <args>` line with:
+```yaml
+- pip install coverage
+- coverage run -m unittest <args>   # preserve original args exactly
+- coverage xml -o coverage.xml
 ```
-Before: go test ./...
-After:  go test -coverprofile=coverage.out -covermode=atomic ./...
-```
 
-Example (Python — flags inserted before trailing `tests/`):
-```
-Before: pytest tests/
-After:  pytest --cov=myservice --cov-report=xml:coverage.xml tests/
-```
-
-If coverage flags are already present in the command, skip this step and note it in the summary.
+> **⚠ Tox repos — STOP AND READ:** If the CI job runs `tox -e <env>` rather than pytest
+> directly, apply changes to `tox.ini` instead of `.gitlab-ci.yml`.
+>
+> **Allowed — add ONLY if XML report format is absent:**
+> - `--cov-report=xml:{toxinidir}/coverage.xml` appended to the existing pytest `addopts`
+>
+> **Forbidden — never touch these, regardless of current value:**
+> - Any existing `--cov=<anything>` — leave exactly as written, even if it uses a
+>   substitution like `{toxinidir}` or `{[vars]MODULE}` that looks "wrong"
+> - Any tox substitution variable (`{toxinidir}`, `{[vars]MODULE}`, etc.)
+> - Any other `[testenv]` key not explicitly listed as "Allowed" above
+>
+> **Correct vs incorrect:**
+> ```
+> # WRONG — subagent replaced maintainer's substitution with a hardcoded name:
+> Before: addopts = --cov={toxinidir} --cov-report=term
+> After:  addopts = --cov=mypackage --cov-report=term --cov-report=xml:coverage.xml
+>
+> # RIGHT — only the missing XML report appended; --cov= untouched:
+> Before: addopts = --cov={toxinidir} --cov-report=term
+> After:  addopts = --cov={toxinidir} --cov-report=term --cov-report=xml:{toxinidir}/coverage.xml
+> ```
 
 ### CI Job Modifiers
 
-These modifiers are applied on top of the upload job templates read from `codecov-onboarding`.
+Applied on top of the upload job templates read from `codecov-onboarding`.
 
 #### GitLab CI — Prepare Modifier
 
@@ -148,7 +166,7 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
    ```yaml
    CODECOV_URL: "PLACEHOLDER"
    ```
-2. Append this `rules:` block to the job definition (it overrides all other rules, making the job inert):
+2. Append this `rules:` block (overrides all other rules, making the job inert):
    ```yaml
      rules:
        - when: never   # DISABLED — remove this block when Codecov instance is ready
@@ -157,12 +175,9 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
 #### GitLab CI — Enable Modifier
 
 1. Read the real Codecov instance URL from `codecov-config/CONFIG.md`.
-2. Replace `CODECOV_URL: "PLACEHOLDER"` with the real URL:
-   ```yaml
-   CODECOV_URL: "<instance-url>"
-   ```
+2. Replace `CODECOV_URL: "PLACEHOLDER"` with the real URL.
 3. Remove the entire `rules: - when: never` block.
-4. Add proper trigger rules and failure tolerance:
+4. Add proper trigger rules:
    ```yaml
      rules:
        - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
@@ -173,25 +188,20 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
 #### GitHub Actions — Prepare Modifier
 
 Read the upload step template from `codecov-onboarding` Option A (self-hosted/token auth
-variant). This is a step that gets added to the **existing primary test workflow file** —
-do not create a new workflow file. Then apply:
+variant). Add to the **existing primary test workflow file** — do not create a new file.
 
-1. Add `if: false` directly on the upload step, and set `url: PLACEHOLDER`. Use the
-   auth method from the template read from `codecov-onboarding` Option A — do not
-   add or change auth fields:
-   ```yaml
-       - name: Upload coverage to Codecov
-         if: false  # DISABLED — remove this line when Codecov instance is ready
-         uses: codecov/codecov-action@v5
-         with:
-           url: PLACEHOLDER
-           # auth fields carried over from Option A template unchanged
-           flags: unit-tests
-           files: <coverage-file-path>
-           fail_ci_if_error: false
-   ```
-
-The step-level `if: false` makes only this step inert — the rest of the workflow is unchanged.
+Apply `if: false` and `url: PLACEHOLDER` to the upload step:
+```yaml
+    - name: Upload coverage to Codecov
+      if: false  # DISABLED — remove this line when Codecov instance is ready
+      uses: codecov/codecov-action@v5
+      with:
+        url: PLACEHOLDER
+        # auth fields carried over from Option A template unchanged
+        flags: unit-tests
+        files: <coverage-file-path>
+        fail_ci_if_error: false
+```
 
 #### GitHub Actions — Enable Modifier
 
@@ -202,14 +212,12 @@ The step-level `if: false` makes only this step inert — the rest of the workfl
 ### Prepare Local Workflow
 
 Clones every target repo, applies all prepare-mode changes, commits locally, prints a
-diff — then stops. No push, no MR.
-
-In bulk mode, dispatch one subagent per repo simultaneously (same approach as `prepare`).
+diff — then stops. No push, no MR. In bulk mode, use the Bulk Dispatch section.
 
 1. **Parse CSV / identify target** (filter `Onboard=TRUE`, `Has Codecov ≠ TRUE`).
 2. **Announce:** "Prepare local — found N repos. Dispatching N subagents in parallel. No MRs will be opened."
-3. Execute **Prepare Mode Workflow steps 1–11** for each repo. Step 2 is a plain
-   `git clone` — no `GITLAB_TOKEN` needed. Stop after commit; skip step 12 (push/MR).
+3. **For each repo:** run the full Prepare Mode Workflow through the **commit step**, skipping
+   the idempotency check and the push/MR step.
 4. After committing, print the per-repo diff:
    ```bash
    git show HEAD --stat --patch
@@ -219,169 +227,126 @@ In bulk mode, dispatch one subagent per repo simultaneously (same approach as `p
 6. Local clones remain in `/tmp/codecov-setup/<repo-name>/`. Run `prepare` when ready
    to push (it re-clones fresh).
 
-Manual-attention repos are listed in the summary as in a real `prepare` run.
-
 ### Prepare Mode Workflow
 
-Execute these steps for each target repo (directly in single-repo mode; each subagent
-runs this workflow independently in bulk mode):
+Execute for each target repo (directly in single-repo mode; subagents run independently in bulk):
 
 1. **Idempotency check:** Search for an open MR/PR with branch name `add-codecov-config`.
-   If one exists, skip this repo and add it to the "already prepared" list in the summary.
+   If one exists, skip this repo and add it to the "already prepared" list.
 2. **Clone the repo:**
    ```bash
    git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
    ```
-   No token needed to clone. `GITLAB_TOKEN` is only required at step 12 (push/MR).
-   `prepare local` stops at step 11 and never needs a token.
-3. **Create branch:**
-   ```bash
-   git checkout -b add-codecov-config
-   ```
+   No token needed to clone. `GITLAB_TOKEN` is only required at the push/MR step.
+3. **Create branch:** `git checkout -b add-codecov-config`
 4. **Identify CI file** from the audit CSV (`CI System` column):
    - `gitlab-ci` → `.gitlab-ci.yml`
    - `github-actions` → `.github/workflows/` (find the primary test workflow)
-5. **Find test command** in the CI file by searching for the language's test runner
-   (e.g., `go test`, `pytest`, `jest`, `vitest`).
-6. **Inject coverage flags** per the Coverage Flag Detection table. If no command is found,
+5. **Find test command** in the CI file by searching for the language's test runner.
+6. **Inject coverage flags** per the Coverage Flag Detection table. If no command found,
    insert the `# TODO` comment and add the repo to the manual-attention list.
 7. **Read upload template** from `codecov-onboarding` SKILL.md:
-   - GitLab → Option C (a new job block appended to `.gitlab-ci.yml`)
-   - GitHub → Option A (a new step added to the existing primary test workflow file)
+   - GitLab → Option C (new job block appended to `.gitlab-ci.yml`)
+   - GitHub → Option A (new step added to the existing primary test workflow file)
 8. **Apply the GitLab or GitHub prepare modifier** (see CI Job Modifiers above).
 9. **Write the change** to the CI config:
    - GitLab: append the modified job block to `.gitlab-ci.yml`
-   - GitHub: add the modified upload step to the existing primary test workflow file
-     (`.github/workflows/<test-workflow-name>.yml`) — do not create a new workflow file
+   - GitHub: add the modified upload step to `.github/workflows/<test-workflow>.yml` — do not create a new workflow file
 10. **Handle `.codecov.yml`** using the template from `add-codecov-yml/skill.md`:
-    - File absent → generate from template, write to repo root
-    - File present and compliant → skip
-    - File present but non-compliant → fix in-place and include in this PR
+    - Absent → generate from template, write to repo root
+    - Present and compliant → skip
+    - Present but non-compliant → fix in-place and include in this PR
 11. **Commit:**
     ```bash
     git add -A
     git commit -m "chore: add codecov setup (disabled, pending internal instance)"
     ```
-12. **Check push access, then push and open MR/PR.**
-    This is the first step that requires credentials (`GITLAB_TOKEN` for GitLab,
-    `gh` auth for GitHub).
-
-    **Push access check (do this before `git push`):**
-    - **GitHub:** `gh api repos/<org>/<repo>` — check `"permissions": {"push": true}`.
-      If `false`, fork first:
-      ```bash
-      gh repo fork <org>/<repo> --clone --remote-name upstream
-      # origin = your fork, upstream = original; PR will target upstream default branch
-      ```
-    - **GitLab:** Check access level via the REST API:
-      ```bash
-      curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-        "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>" \
-        | python3 -c "import json,sys; d=json.load(sys.stdin); \
-            print(d.get('permissions',{}).get('project_access',{}).get('access_level', 0))"
-      ```
-      If below 30 (Developer), fork via API then add upstream remote:
-      ```bash
-      FORK_URL=$(curl -s -X POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-        "https://<gitlab-host>/api/v4/projects/<org>%2F<repo>/fork" \
-        | python3 -c "import json,sys; print(json.load(sys.stdin).get('http_url_to_repo',''))")
-      git remote set-url origin "$FORK_URL"
-      git remote add upstream <original-repo-url>
-      ```
-    - **If `$GITLAB_TOKEN` is not set:** attempt `git push` directly; if it fails
-      with a permission error, add the repo to the Needs Manual Attention list with
-      reason "push access denied — set GITLAB_TOKEN and re-run."
-
-    **Push and open MR/PR** using the platform-specific step from `add-codecov-yml/skill.md § 4`:
-    ```bash
-    git push -u origin add-codecov-config
-    ```
-    - GitHub repos: use `gh pr create`
-    - GitLab repos: use `curl` to create the MR via the GitLab REST API
-    - MR/PR title: `chore: add Codecov coverage config (disabled — pending internal instance)`
-    - MR/PR body: see PR Description Template section below
+12. **Push and open MR/PR** following `add-codecov-yml/skill.md § 4` (handles fork check,
+    push access, and platform-specific MR/PR creation). Requires `GITLAB_TOKEN` for GitLab,
+    `gh` auth for GitHub.
+    - Title: `chore: add Codecov coverage config (disabled — pending internal instance)`
+    - Body: see PR Description Templates below
 13. **Record** the MR/PR URL in the session summary.
 
 ### Enable Mode Workflow
 
-1. **Read instance URL** from `codecov-config/CONFIG.md`. If the URL is still `PLACEHOLDER`,
-   stop and report: "Instance URL is not set in codecov-config/CONFIG.md — cannot run enable mode."
+1. **Read instance URL** from `codecov-config/CONFIG.md`. If still `PLACEHOLDER`, stop:
+   "Instance URL is not set in codecov-config/CONFIG.md — cannot run enable mode."
 2. **Idempotency check:** Search for an open MR/PR with branch `enable-codecov-coverage`.
    If found, skip and add to the "already enabled" list.
-3. **Clone** the repo:
+3. **Clone** the repo (no token needed):
    ```bash
    git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
    ```
-   No token needed to clone. Push access check is deferred to step 8.
-4. **Verify** the disabled upload step/job is present in the default branch:
+4. **Verify** the disabled upload job/step is present in the default branch:
    - GitLab: look for a job block containing `when: never`
-   - GitHub: look for `if: false` on a step named `Upload coverage to Codecov` in the primary test workflow
-   If not found, skip this repo and add it to the **Needs Manual Attention** list with reason
-   "prepare change not found in default branch — was the prepare MR/PR merged?"
-5. **Create branch:**
-   ```bash
-   git checkout -b enable-codecov-coverage
-   ```
+   - GitHub: look for `if: false` on a step named `Upload coverage to Codecov`
+
+   If not found, skip and add to **Needs Manual Attention**: "prepare change not found in
+   default branch — was the prepare MR/PR merged?"
+5. **Create branch:** `git checkout -b enable-codecov-coverage`
 6. **Apply the GitLab or GitHub enable modifier** (see CI Job Modifiers above).
 7. **Commit:**
    ```bash
    git add -A
    git commit -m "chore: enable codecov upload to <instance-url>"
    ```
-8. **Push and open MR/PR:**
+8. **Push and open MR/PR** following `add-codecov-yml/skill.md § 4`.
    - Title: `feat: enable Codecov coverage reporting`
-   - Body: "Activates the Codecov upload job added in the prepare PR. Coverage uploads begin
-     on next pipeline run after merge."
+   - Body: see PR Description Templates below
 9. **Record** the MR/PR URL in the session summary.
 
 ### Full Mode Workflow
 
 1. **Idempotency check:** Search for an open MR/PR with branch `add-codecov-coverage`.
-   If one exists, skip this repo and add it to the "already set up" list in the summary.
-2. **Read instance URL** from `codecov-config/CONFIG.md`. If the URL is still `PLACEHOLDER`,
-   stop and report: "Instance URL is not set in codecov-config/CONFIG.md — cannot run full mode."
-3. **Execute Prepare Mode steps 2–11** (clone → branch → coverage flags → template → enable
-   modifier → `.codecov.yml` → commit), with these differences:
+   If found, skip and add to the "already set up" list.
+2. **Read instance URL** from `codecov-config/CONFIG.md`. If still `PLACEHOLDER`, stop.
+3. **Clone → branch → inject coverage flags → read template → apply enable modifier →
+   handle `.codecov.yml` → commit** (same as Prepare Mode, steps 2–11), with:
    - Branch name: `add-codecov-coverage`
-   - In step 8, apply the **enable modifier** (not the prepare modifier) using the real URL —
-     the job is active immediately; no second PR is needed.
-4. **Push and open MR/PR:**
+   - Apply the **enable modifier** (not prepare modifier) using the real URL
+4. **Push and open MR/PR** following `add-codecov-yml/skill.md § 4`.
    - Title: `feat: add Codecov coverage reporting`
-   - Body: "Adds fully enabled Codecov coverage upload. Coverage uploads begin on next
-     pipeline run after merge."
+   - Body: "Adds fully enabled Codecov coverage upload. Coverage uploads begin on next pipeline run after merge."
 5. **Record** the MR/PR URL in the session summary.
 
 ### Bulk Dispatch (CSV Mode)
 
-Used by `prepare local`, `prepare`, `enable`, and `full` modes when a CSV is provided.
-All modes dispatch one subagent per repo in parallel.
+Used by all modes when a CSV is provided. Repos are processed in **parallel waves**.
 
-1. **Parse CSV.** Filter to rows where `Onboard=TRUE` AND `Has Codecov` ≠ `TRUE`.
-2. **Check progress file:** If `.codecov-setup-progress.json` exists in the current working
-   directory, skip any repo already recorded under the same mode.
-3. **Announce:** "Found N repos to process. Dispatching N subagents in parallel."
-4. **Dispatch one subagent per repo simultaneously** (all in a single turn). Each subagent
-   receives:
-   - Repo URL, language, CI system (from the CSV row)
-   - Mode (`prepare local` / `prepare` / `enable` / `full`)
-   - Instance URL pre-read from `codecov-config/CONFIG.md` (for enable/full modes)
-   - Instructions to execute this skill's single-repo workflow for that one repo only
-   - Working directory: `/tmp/codecov-setup/<repo-name>/`
-5. **Wait** for all subagents to complete.
-6. **Write results** to `.codecov-setup-progress.json` in the current directory:
-   ```json
-   {
-     "mode": "prepare",
-     "timestamp": "<ISO-8601>",
-     "results": [
-       {"repo": "<url>", "status": "opened", "pr_url": "<url>"},
-       {"repo": "<url>", "status": "skipped", "reason": "already prepared"}
-     ]
-   }
+**Batch size:** default `15`. Pass `--batch-size <N>` to override.
+
+1. **Parse CSV.** Filter to `Onboard=TRUE` AND `Has Codecov ≠ TRUE`.
+2. **Check progress file:** If `.codecov-setup-progress.json` exists, skip repos already
+   recorded under the same mode.
+3. **Split into waves** of `batch_size` repos each.
+   - Example: 47 repos, batch 15 → wave 1 (15), wave 2 (15), wave 3 (15), wave 4 (2).
+4. **Announce:**
    ```
-7. **Print the session summary** (see Session Summary Format below).
+   Found N repos. Batch size: <batch_size>. Dispatching in <num_waves> wave(s).
+   Wave 1/<num_waves>: repos 1–<batch_size> — dispatching <batch_size> subagents in parallel.
+   ```
+5. **For each wave (sequentially):**
+   a. Dispatch all repos in this wave simultaneously (all Task calls in a single turn).
+      Each subagent receives: repo URL, language, CI system, mode, instance URL (if needed),
+      and instructions to run this skill's single-repo workflow. Working dir: `/tmp/codecov-setup/<repo-name>/`
+   b. Wait for all subagents in this wave to complete before proceeding.
+   c. Append wave results to `.codecov-setup-progress.json`:
+      ```json
+      {
+        "mode": "prepare",
+        "batch_size": 15,
+        "timestamp": "<ISO-8601>",
+        "results": [
+          {"repo": "<url>", "status": "opened", "pr_url": "<url>"},
+          {"repo": "<url>", "status": "skipped", "reason": "already prepared"}
+        ]
+      }
+      ```
+   d. Announce: `Wave 1 complete (15/47). Wave 2/<num_waves>: repos 16–30 — dispatching 15 subagents.`
+6. **Print the session summary** after all waves complete.
 
 ### Idempotency
 
@@ -390,13 +355,13 @@ All modes dispatch one subagent per repo in parallel.
 | Open MR/PR on branch `add-codecov-config` already exists | Skip prepare; add to "already prepared" list |
 | Open MR/PR on branch `enable-codecov-coverage` already exists | Skip enable; add to "already enabled" list |
 | Open MR/PR on branch `add-codecov-coverage` already exists | Skip full; add to "already set up" list |
-| Repo recorded in `.codecov-setup-progress.json` under the same mode | Skip in bulk mode before dispatching (applies to prepare, enable, and full) |
+| Repo recorded in `.codecov-setup-progress.json` under the same mode | Skip before dispatching |
 
 Never open a duplicate MR/PR. Always report skips in the summary.
 
-### PR Description Template (Prepare Mode)
+### PR Description Templates
 
-Use the platform-appropriate body. Include only the matching section.
+#### Prepare Mode
 
 **GitLab MR body:**
 ```markdown
@@ -425,9 +390,45 @@ The upload step is **disabled** (`if: false`) — zero CI impact until the enabl
 **Next:** a follow-up PR will remove `if: false` and set the instance URL.
 ```
 
-### Session Summary Format
+#### Enable Mode
 
-After processing all repos, print this summary:
+**GitLab MR body:**
+```markdown
+## Codecov Enable
+
+Activates the upload job added in the prepare MR. Coverage uploads begin on the
+next pipeline run after merge.
+
+**Removed:** `when: never` disable guard  
+**Set:** `CODECOV_URL` to the real instance URL  
+**Prerequisite:** `CODECOV_TOKEN` must be set as a masked CI/CD variable before merging.
+```
+
+**GitHub PR body:**
+```markdown
+## Codecov Enable
+
+Activates the upload step added in the prepare PR. Coverage uploads begin on the
+next workflow run after merge.
+
+**Removed:** `if: false` disable guard  
+**Set:** `url:` to the real instance URL
+```
+
+### Common Mistakes
+
+Real subagent errors observed in production runs.
+
+| Mistake | Rule |
+|---|---|
+| Mutated `--cov={toxinidir}` to `--cov=mypackage` in `tox.ini` | Never change an existing `--cov=` target — tox substitutions are intentional |
+| Added `--cov-report=xml` without the `:{toxinidir}/coverage.xml` path | Always use the full `xml:{toxinidir}/coverage.xml` form in tox |
+| Injected `--cov` flags without verifying `pytest-cov` is installed | Check requirements file or install line; add `pip install pytest-cov` if absent |
+| Suggested migrating `unittest` to `pytest` to get coverage | `coverage.py` wraps `unittest` directly — no migration needed |
+| Used `--cov=.` without a TODO comment | Always add `# TODO: replace . with the actual package name` on the same line |
+| Created a new GitHub Actions workflow file for the upload step | Always add the upload step to the existing primary test workflow file |
+
+### Session Summary Format
 
 ```
 ## codecov-setup Summary
