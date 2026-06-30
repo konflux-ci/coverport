@@ -322,24 +322,40 @@ Used by all modes when a CSV is provided. Repos are processed in **parallel wave
 
 **`GITLAB_TOKEN` resolution:** The agent shell is a separate process from the user's
 terminal — `export GITLAB_TOKEN=...` in the user's terminal is not visible to the agent.
-Before dispatching subagents for GitLab repos in `prepare` or `enable` mode:
+Before dispatching subagents for GitLab repos in `prepare` or `enable` mode, resolve the
+token using this discovery order (same as `coverage-audit`):
 
-1. Check if `GITLAB_TOKEN` is available in the agent's own shell:
-   ```bash
-   echo "GITLAB_TOKEN set: $([ -n "$GITLAB_TOKEN" ] && echo YES || echo NO)"
-   ```
-2. **If YES** — pass the resolved value to each subagent's instructions.
-3. **If NO** — stop and ask the user:
-   ```
-   GITLAB_TOKEN is not available in the agent's shell environment. Your terminal export
-   is not visible here. Please provide it one of two ways:
-   a) Paste the token value directly into this chat (it will only be used for this run)
-   b) Add `export GITLAB_TOKEN=<value>` to ~/.bashrc or ~/.zprofile for all future runs
-   ```
-   Once the user provides the value, use it directly without echoing it in output.
+```python
+import json, os
 
-Pass the token to subagents in their instructions so they can `export GITLAB_TOKEN=<value>`
-at the start of their shell session. Never print or log the token value in summaries.
+# 1. Environment variable
+token = os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_PERSONAL_ACCESS_TOKEN")
+
+# 2. MCP server config in ~/.claude/settings.json
+if not token:
+    try:
+        with open(os.path.expanduser("~/.claude/settings.json")) as f:
+            cfg = json.load(f)
+        for server in cfg.get("mcpServers", {}).values():
+            env = server.get("env", {})
+            token = env.get("GITLAB_PERSONAL_ACCESS_TOKEN") or env.get("GITLAB_TOKEN")
+            if token:
+                break
+    except Exception:
+        pass
+```
+
+- **Token found** — pass the resolved value to each subagent's instructions so they can
+  `export GITLAB_TOKEN=<value>` at the start of their shell session.
+- **Token not found** — stop and ask the user:
+  ```
+  Could not find GITLAB_TOKEN in the agent environment or ~/.claude/settings.json.
+  Please provide it one of two ways:
+  a) Paste the token value directly into this chat (used for this run only)
+  b) Add export GITLAB_TOKEN=<value> to ~/.bashrc or ~/.zprofile for permanent access
+  ```
+
+Never print or log the token value in summaries or output.
 
 1. **Parse CSV.** Filter to `Onboard=TRUE` AND `Has Codecov ≠ TRUE`.
 2. **Check progress file:** If `.codecov-setup-progress.json` exists, skip repos already
