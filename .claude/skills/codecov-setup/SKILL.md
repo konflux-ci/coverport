@@ -320,15 +320,26 @@ Used by all modes when a CSV is provided. Repos are processed in **parallel wave
 
 **Batch size:** default `15`. Pass `--batch-size <N>` to override.
 
-**Environment variables:** Subagents run in isolated shells and do not inherit the parent
-session's environment. Before dispatching any subagents for GitLab repos in `prepare` or
-`enable` mode, read `GITLAB_TOKEN` from the parent environment:
-```bash
-echo $GITLAB_TOKEN   # verify it is set and non-empty
-```
-Pass the resolved token value explicitly in each subagent's instructions so the subagent
-can export it at the start of its shell session. Never pass it as a visible string in
-summary output.
+**`GITLAB_TOKEN` resolution:** The agent shell is a separate process from the user's
+terminal — `export GITLAB_TOKEN=...` in the user's terminal is not visible to the agent.
+Before dispatching subagents for GitLab repos in `prepare` or `enable` mode:
+
+1. Check if `GITLAB_TOKEN` is available in the agent's own shell:
+   ```bash
+   echo "GITLAB_TOKEN set: $([ -n "$GITLAB_TOKEN" ] && echo YES || echo NO)"
+   ```
+2. **If YES** — pass the resolved value to each subagent's instructions.
+3. **If NO** — stop and ask the user:
+   ```
+   GITLAB_TOKEN is not available in the agent's shell environment. Your terminal export
+   is not visible here. Please provide it one of two ways:
+   a) Paste the token value directly into this chat (it will only be used for this run)
+   b) Add `export GITLAB_TOKEN=<value>` to ~/.bashrc or ~/.zprofile for all future runs
+   ```
+   Once the user provides the value, use it directly without echoing it in output.
+
+Pass the token to subagents in their instructions so they can `export GITLAB_TOKEN=<value>`
+at the start of their shell session. Never print or log the token value in summaries.
 
 1. **Parse CSV.** Filter to `Onboard=TRUE` AND `Has Codecov ≠ TRUE`.
 2. **Check progress file:** If `.codecov-setup-progress.json` exists, skip repos already
