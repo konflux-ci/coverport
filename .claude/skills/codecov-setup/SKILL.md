@@ -264,7 +264,9 @@ Execute for each target repo (directly in single-repo mode; subagents run indepe
     ```
 12. **Push and open MR/PR** following `add-codecov-yml/skill.md § 4` (handles fork check,
     push access, and platform-specific MR/PR creation). Requires `GITLAB_TOKEN` for GitLab,
-    `gh` auth for GitHub.
+    `gh` auth for GitHub. If running as a subagent, the token must have been passed
+    explicitly in the subagent's instructions — subagents do not inherit the parent shell's
+    environment variables.
     - Title: `chore: add Codecov coverage config (disabled — pending internal instance)`
     - Body: see PR Description Templates below
 13. **Record** the MR/PR URL in the session summary.
@@ -318,6 +320,16 @@ Used by all modes when a CSV is provided. Repos are processed in **parallel wave
 
 **Batch size:** default `15`. Pass `--batch-size <N>` to override.
 
+**Environment variables:** Subagents run in isolated shells and do not inherit the parent
+session's environment. Before dispatching any subagents for GitLab repos in `prepare` or
+`enable` mode, read `GITLAB_TOKEN` from the parent environment:
+```bash
+echo $GITLAB_TOKEN   # verify it is set and non-empty
+```
+Pass the resolved token value explicitly in each subagent's instructions so the subagent
+can export it at the start of its shell session. Never pass it as a visible string in
+summary output.
+
 1. **Parse CSV.** Filter to `Onboard=TRUE` AND `Has Codecov ≠ TRUE`.
 2. **Check progress file:** If `.codecov-setup-progress.json` exists, skip repos already
    recorded under the same mode.
@@ -332,6 +344,9 @@ Used by all modes when a CSV is provided. Repos are processed in **parallel wave
    a. Dispatch all repos in this wave simultaneously (all Task calls in a single turn).
       Each subagent receives: repo URL, language, CI system, mode, instance URL (if needed),
       and instructions to run this skill's single-repo workflow. Working dir: `/tmp/codecov-setup/<repo-name>/`
+      For GitLab repos in `prepare` or `enable` mode, also pass the resolved value of
+      `GITLAB_TOKEN` read from the parent environment before dispatch — subagents run in
+      isolated shells that do not inherit the parent session's environment variables.
    b. Wait for all subagents in this wave to complete before proceeding.
    c. Append wave results to `.codecov-setup-progress.json`:
       ```json
