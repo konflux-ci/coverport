@@ -243,6 +243,12 @@ Execute for each target repo (directly in single-repo mode; subagents run indepe
 4. **Identify CI file** from the audit CSV (`CI System` column):
    - `gitlab-ci` → `.gitlab-ci.yml`
    - `github-actions` → `.github/workflows/` (find the primary test workflow)
+
+   **If the expected CI file is absent:** skip this repo entirely — do not open an MR.
+   Add to the **Needs Manual Attention** list with reason:
+   - `gitlab-ci` declared but no `.gitlab-ci.yml` found → "No GitLab CI config found — repo may be a GitHub mirror or CI not yet configured; verify CI runs here before onboarding"
+   - `github-actions` declared but no `.github/workflows/` found → "No GitHub Actions workflows found — CI not yet configured"
+
 5. **Find test command** in the CI file by searching for the language's test runner.
 6. **Inject coverage flags** per the Coverage Flag Detection table. If no command found,
    insert the `# TODO` comment and add the repo to the manual-attention list.
