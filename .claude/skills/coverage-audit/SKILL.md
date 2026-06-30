@@ -72,7 +72,15 @@ Rules:
          if token:
              break
      ```
-  3. Ask the user directly as last resort
+  3. Shell rc files — agent shells are non-interactive and don't source `~/.bashrc`, so
+     even a user's `export GITLAB_TOKEN=...` in their terminal won't be visible. Read the
+     value directly from common rc files without sourcing them:
+     ```bash
+     grep -h "^export GITLAB_TOKEN=\|^export GITLAB_PERSONAL_ACCESS_TOKEN=" \
+       ~/.bashrc ~/.zshrc ~/.profile ~/.bash_profile ~/.zprofile 2>/dev/null \
+       | head -1 | sed 's/^export [^=]*=//' | tr -d '"' | tr -d "'"
+     ```
+  4. Ask the user directly as last resort
 - **SSL certificate issues**: Self-hosted GitLab instances often use internal CAs. If `urllib` raises SSL errors, create a permissive SSL context (`ssl.CERT_NONE`). Check MCP config for `NODE_TLS_REJECT_UNAUTHORIZED=0` as a signal. Warn the user when disabling SSL verification.
 - **MCP tool fallback**: Do NOT rely on GitLab MCP tools being connected — they may be unavailable to the session or to subagents. Always use direct API calls via `urllib.request` as the primary approach. MCP tools are a convenience, not a dependency.
 
