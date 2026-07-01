@@ -102,19 +102,17 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v6
+      - name: Lint CLI
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.12
           working-directory: cli
-          args: --timeout=5m
 
       - name: Lint instrumentation
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.12
           working-directory: instrumentation/go
-          args: --timeout=5m
 
       - name: Check CLI builds
         working-directory: cli
@@ -130,35 +128,34 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install shellcheck
-        run: sudo apt-get install -y shellcheck
+      - name: Install shellcheck and PyYAML
+        run: sudo apt-get install -y shellcheck python3-yaml
 
       - name: Extract and check embedded scripts
+        shell: bash
         run: |
+          set -uo pipefail
           EXIT_CODE=0
           for f in $(find cli/examples coverage-processor/tekton -name '*.yaml' -o -name '*.yml'); do
-            # Extract script blocks from Tekton tasks
-            python3 -c "
+            while IFS= read -r script; do
+              echo "$script" | shellcheck -s bash - || EXIT_CODE=1
+            done < <(python3 -c "
           import yaml, sys
           with open('$f') as fh:
-              docs = yaml.safe_load_all(fh)
-              for doc in docs:
+              for doc in yaml.safe_load_all(fh):
                   if doc is None:
                       continue
-                  # Walk looking for 'script' keys
-                  def walk(obj, path=''):
+                  def walk(obj):
                       if isinstance(obj, dict):
                           for k, v in obj.items():
                               if k == 'script' and isinstance(v, str):
                                   print(v)
                               else:
-                                  walk(v, f'{path}.{k}')
+                                  walk(v)
                       elif isinstance(obj, list):
                           for item in obj:
-                              walk(item, path)
+                              walk(item)
                   walk(doc)
-          " 2>/dev/null | while read -r script; do
-              echo "$script" | shellcheck -s bash - || EXIT_CODE=1
-            done
+          ")
           done
           exit $EXIT_CODE
