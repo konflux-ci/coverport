@@ -100,20 +100,65 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: '1.24'
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: cli
+          args: --timeout=5m
+
+      - name: Lint instrumentation
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: instrumentation/go
+          args: --timeout=5m
 
       - name: Check CLI builds
         working-directory: cli
         run: go build ./...
 
-      - name: Run go vet (CLI)
-        working-directory: cli
-        run: go vet ./...
-
       - name: Check instrumentation builds
         working-directory: instrumentation/go
         run: go build ./...
 
-      - name: Run go vet (instrumentation)
-        working-directory: instrumentation/go
-        run: go vet ./...
+  shellcheck:
+    name: ShellCheck embedded scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Extract and check embedded scripts
+        run: |
+          EXIT_CODE=0
+          for f in $(find cli/examples coverage-processor/tekton -name '*.yaml' -o -name '*.yml'); do
+            # Extract script blocks from Tekton tasks
+            python3 -c "
+          import yaml, sys
+          with open('$f') as fh:
+              docs = yaml.safe_load_all(fh)
+              for doc in docs:
+                  if doc is None:
+                      continue
+                  # Walk looking for 'script' keys
+                  def walk(obj, path=''):
+                      if isinstance(obj, dict):
+                          for k, v in obj.items():
+                              if k == 'script' and isinstance(v, str):
+                                  print(v)
+                              else:
+                                  walk(v, f'{path}.{k}')
+                      elif isinstance(obj, list):
+                          for item in obj:
+                              walk(item, path)
+                  walk(doc)
+          " 2>/dev/null | while read -r script; do
+              echo "$script" | shellcheck -s bash - || EXIT_CODE=1
+            done
+          done
+          exit $EXIT_CODE

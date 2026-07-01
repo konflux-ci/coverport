@@ -61,7 +61,7 @@ func (e *ImageMetadataExtractor) ExtractGitMetadata(ctx context.Context, image s
 		}
 	}
 
-	if attestation == nil || len(attestation) == 0 {
+	if attestation == nil {
 		return nil, fmt.Errorf("no attestation data found for image")
 	}
 	payloadStr, ok := attestation["payload"].(string)

@@ -40,8 +40,8 @@ func NewCodecovUploader(token string) (*CodecovUploader, error) {
 	}
 
 	// Check if codecov CLI is already available
-	codecovPath, err := exec.LookPath("codecov")
-	if err != nil {
+	codecovPath, _ := exec.LookPath("codecov")
+	if codecovPath == "" {
 		// Not found, we'll need to download it
 		return &CodecovUploader{
 			token:         token,
