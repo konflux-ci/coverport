@@ -310,13 +310,15 @@ Pushes and opens MRs/PRs for all repos that were prepared or enabled locally.
 1. **Read progress file** (`.codecov-setup-progress.json`). Collect all entries where
    `status = "committed_locally"`. If none found, report: "No locally committed repos
    found in progress file — run `prepare` or `enable` first."
-2. **Confirm local clones:** For each entry, verify `local_path` exists and has an
-   unpushed commit on the recorded `branch`:
+2. **Confirm local clones:** For each entry, verify `local_path` exists and that the
+   recorded `branch` specifically has an unpushed commit:
    ```bash
-   git -C <local_path> log --branches --not --remotes --oneline | head -1
+   git -C <local_path> rev-list --count <branch> --not --remotes
    ```
-   If the path is missing or the branch has no unpushed commit, add to **Needs Manual
-   Attention**: "local clone missing or already pushed — re-run prepare/enable to regenerate."
+   Use the `branch` value from the progress entry (e.g. `add-codecov-config` or
+   `enable-codecov-coverage`). A result of `0` means nothing to push. If the path is
+   missing or the count is `0`, add to **Needs Manual Attention**: "local clone missing
+   or branch already pushed — re-run prepare/enable to regenerate."
 3. **Resolve `GITLAB_TOKEN`** for GitLab repos using the discovery logic in
    `coverage-audit/SKILL.md` (env var → `~/.claude/settings.json` → `git credential fill`
    for the repo's host → ask user). Pass the resolved token to each subagent.
