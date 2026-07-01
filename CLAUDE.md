@@ -78,8 +78,7 @@ cd cli && make docker-build
 ## Pitfalls
 
 - `golangci-lint` runs in CI via `golangci-lint-action@v9` (v2.12). Both `cli/` and
-  `instrumentation/go/` have `.golangci.yml` configs. ShellCheck also runs on embedded
-  scripts in Tekton YAML.
+  `instrumentation/go/` have `.golangci.yml` configs.
 - `QUICKSTART.md` references `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` which don't exist
   in the repo — these are aspirational docs.
 - Python and Node.js instrumentation have NO tests and NO dependency manifests in-repo;
