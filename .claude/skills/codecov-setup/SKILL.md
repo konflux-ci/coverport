@@ -169,7 +169,12 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
    ```yaml
    CODECOV_URL: "PLACEHOLDER"
    ```
-2. Append this `rules:` block (overrides all other rules, making the job inert):
+2. Add the required runner tag (internal GitLab requires this to route to the correct runner):
+   ```yaml
+   tags:
+     - itup-alm-x86
+   ```
+3. Append this `rules:` block (overrides all other rules, making the job inert):
    ```yaml
      rules:
        - when: never   # DISABLED — remove this block when Codecov instance is ready
@@ -179,8 +184,9 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
 
 1. Read the real Codecov instance URL from `codecov-config/CONFIG.md`.
 2. Replace `CODECOV_URL: "PLACEHOLDER"` with the real URL.
-3. Remove the entire `rules: - when: never` block.
-4. Add proper trigger rules:
+3. Verify `tags: [itup-alm-x86]` is present (added by prepare modifier); add if missing.
+4. Remove the entire `rules: - when: never` block.
+5. Add proper trigger rules:
    ```yaml
      rules:
        - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
