@@ -16,7 +16,6 @@ cd instrumentation/go && go test ./... -v -cover
 
 - `cli/` — Go CLI (cobra): `cmd/` commands, `internal/` business logic, `pkg/client/` HTTP/K8s client
 - `instrumentation/` — Coverage HTTP servers: `go/`, `python/`, `nodejs/`
-- `coverage-processor/` — Tekton pipeline for Quay webhook processing + SonarCloud upload
 - `.claude/skills/` — Agent skills for coverage onboarding workflows
 
 ## Conventions

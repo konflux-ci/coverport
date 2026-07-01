@@ -41,7 +41,7 @@ spec:
           - name: COVERAGE_ARTIFACT_REF
         steps:
           - name: collect
-            image: quay.io/myorg/coverport:latest
+            image: quay.io/konflux-ci/coverport:latest
             env:
               - name: SNAPSHOT
                 value: $(params.SNAPSHOT)

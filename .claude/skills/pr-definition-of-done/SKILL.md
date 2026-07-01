@@ -25,7 +25,6 @@ description: >-
 | CLI Tests (Go 1.24) | All PRs | Yes |
 | Instrumentation Tests (Go matrix) | All PRs | Yes |
 | Lint (golangci-lint + go build) | All PRs | Yes |
-| ShellCheck (embedded scripts) | All PRs | Yes |
 | AGENTS.md line limit | All PRs | Yes |
 | Konflux build (coverport-cli) | PRs touching `cli/**` | Yes |
 | Codecov coverage | All PRs | Informational |

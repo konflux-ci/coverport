@@ -12,7 +12,7 @@ results as OCI artifacts.
 - **Instrumentation**: Go 1.21+ (stdlib), Python 3 (coverage.py), Node.js (V8 inspector)
 - **CI**: GitHub Actions (tests/lint), Konflux Tekton (container builds)
 - **Container base**: UBI9 minimal + Go 1.24, oras 1.2.0, cosign 2.4.1
-- **Coverage**: Codecov (OIDC upload), SonarCloud (via coverage-processor)
+- **Coverage**: Codecov (OIDC upload)
 
 ## Code Layout
 
@@ -36,11 +36,6 @@ instrumentation/
 ├── go/               coverage_server.go — stdlib HTTP server, zero deps
 ├── python/           coverage_server.py — coverage.py wrapper + Gunicorn
 └── nodejs/           coverage_server.js — V8 inspector + v8-to-istanbul
-
-coverage-processor/
-├── tekton/           EventListener, TriggerBinding, coverage task
-├── k8s/              Namespace, RBAC, gosmee client config
-└── deploy.sh         One-shot deployment script
 ```
 
 ## Build / Test / Run
@@ -59,7 +54,7 @@ cd instrumentation/go && go test ./... -v -count=1 -cover -coverprofile=coverage
 
 # Run locally
 ./coverport collect --url http://localhost:53700 --test-name=local --output=./coverage-output
-./coverport discover --namespace=my-ns --image=quay.io/org/app:latest
+./coverport discover --namespace=my-ns --images=quay.io/org/app:latest
 ./coverport process --input=./coverage-output --codecov-token=$TOKEN
 
 # Container build
@@ -89,8 +84,6 @@ cd cli && make docker-build
   in the repo — these are aspirational docs.
 - Python and Node.js instrumentation have NO tests and NO dependency manifests in-repo;
   they're designed to be copied into consumer projects.
-- The `coverage-processor/deploy.sh` requires an active OpenShift session and Smee.io channel;
-  it will fail silently if prerequisites aren't met.
 - Tekton PipelineRuns reference specific Konflux catalog tasks that may change versions
   upstream without notice.
-- No root `.gitignore` — only `cli/.gitignore` and `coverage-processor/.gitignore` exist.
+- No root `.gitignore` — only `cli/.gitignore` exists.
