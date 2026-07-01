@@ -165,11 +165,11 @@ Applied on top of the upload job templates read from `codecov-onboarding`.
 
 Read the upload job template from `codecov-onboarding` Option C. Then apply:
 
-1. In the job's `variables:` block, add:
-   ```yaml
-   CODECOV_URL: "PLACEHOLDER"
-   ```
-2. Add the required runner tag (internal GitLab requires this to route to the correct runner):
+1. **Do not add a `variables:` block** for `CODECOV_URL`. The job references `${CODECOV_URL}`
+   and `${CODECOV_TOKEN}` — both are set as GitLab CI/CD variables in
+   Settings → CI/CD → Variables at the group or project level. This allows the instance URL
+   to be changed (e.g. staging → production) without touching any `.gitlab-ci.yml`.
+2. Add the required runner tag:
    ```yaml
    tags:
      - itup-alm-x86
@@ -182,17 +182,17 @@ Read the upload job template from `codecov-onboarding` Option C. Then apply:
 
 #### GitLab CI — Enable Modifier
 
-1. Read the real Codecov instance URL from `codecov-config/CONFIG.md`.
-2. Replace `CODECOV_URL: "PLACEHOLDER"` with the real URL.
-3. Verify `tags: [itup-alm-x86]` is present (added by prepare modifier); add if missing.
-4. Remove the entire `rules: - when: never` block.
-5. Add proper trigger rules:
+1. Verify `tags: [itup-alm-x86]` is present; add if missing.
+2. Remove the entire `rules: - when: never` block.
+3. Add proper trigger rules:
    ```yaml
      rules:
        - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
        - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
      allow_failure: true
    ```
+
+No URL substitution needed — `CODECOV_URL` is a CI/CD variable, not hardcoded in the YAML.
 
 #### GitHub Actions — Prepare Modifier
 
@@ -412,10 +412,12 @@ The upload job is **disabled** (`when: never`) — zero CI impact until the enab
 
 **Added:** coverage flags in test command · `codecov-upload` job (disabled) · `.codecov.yml`
 
-**Before enable MR:** add `CODECOV_TOKEN` as a masked CI/CD variable. Token auth is
-required for GitLab CI (OIDC unavailable). See `codecov-config/CONFIG.md` for the value.
+**Before merging the enable MR**, set these as masked CI/CD variables in
+Settings → CI/CD → Variables (token auth required — OIDC unavailable for GitLab CI):
+- `CODECOV_TOKEN` — repository upload token from the Codecov UI
+- `CODECOV_URL` — instance URL from `codecov-config/CONFIG.md` (set at group level to share across repos)
 
-**Next:** a follow-up MR will remove the disable guard and set the instance URL.
+**Next:** a follow-up MR will remove the disable guard.
 ```
 
 **GitHub PR body:**
@@ -441,8 +443,8 @@ Activates the upload job added in the prepare MR. Coverage uploads begin on the
 next pipeline run after merge.
 
 **Removed:** `when: never` disable guard  
-**Set:** `CODECOV_URL` to the real instance URL  
-**Prerequisite:** `CODECOV_TOKEN` must be set as a masked CI/CD variable before merging.
+**Prerequisite:** `CODECOV_TOKEN` and `CODECOV_URL` must be set as masked CI/CD variables
+before merging (see prepare MR for details).
 ```
 
 **GitHub PR body:**
