@@ -165,10 +165,12 @@ Applied on top of the upload job templates read from `codecov-onboarding`.
 
 Read the upload job template from `codecov-onboarding` Option C. Then apply:
 
-1. **Do not add a `variables:` block** for `CODECOV_URL`. The job references `${CODECOV_URL}`
-   and `${CODECOV_TOKEN}` — both are set as GitLab CI/CD variables in
-   Settings → CI/CD → Variables at the group or project level. This allows the instance URL
-   to be changed (e.g. staging → production) without touching any `.gitlab-ci.yml`.
+1. **Do not add a `variables:` block** for `CODECOV_URL` or `CODECOV_TOKEN`. The job
+   references both as CI/CD variables — set at different scopes:
+   - `CODECOV_URL` — set at the **group level** (shared across all repos in the group);
+     changing it once (e.g. staging → production) updates every repo with no YAML changes
+   - `CODECOV_TOKEN` — set at the **project level** only; it is a repo-specific upload
+     token from the Codecov UI and must not be set at group level
 2. Add the required runner tag:
    ```yaml
    tags:
@@ -412,10 +414,12 @@ The upload job is **disabled** (`when: never`) — zero CI impact until the enab
 
 **Added:** coverage flags in test command · `codecov-upload` job (disabled) · `.codecov.yml`
 
-**Before merging the enable MR**, set these as masked CI/CD variables in
-Settings → CI/CD → Variables (token auth required — OIDC unavailable for GitLab CI):
-- `CODECOV_TOKEN` — repository upload token from the Codecov UI
-- `CODECOV_URL` — instance URL from `codecov-config/CONFIG.md` (set at group level to share across repos)
+**Before merging the enable MR**, set these masked CI/CD variables
+(token auth required — OIDC unavailable for GitLab CI):
+- `CODECOV_TOKEN` — repo-specific upload token from the Codecov UI; set at **project level**
+  (Settings → CI/CD → Variables on this repo)
+- `CODECOV_URL` — instance URL from `codecov-config/CONFIG.md`; set at **group level** once
+  to share across all repos in the group
 
 **Next:** a follow-up MR will remove the disable guard.
 ```
@@ -443,8 +447,9 @@ Activates the upload job added in the prepare MR. Coverage uploads begin on the
 next pipeline run after merge.
 
 **Removed:** `when: never` disable guard  
-**Prerequisite:** `CODECOV_TOKEN` and `CODECOV_URL` must be set as masked CI/CD variables
-before merging (see prepare MR for details).
+**Prerequisite:** before merging, verify:
+- `CODECOV_TOKEN` is set at **project level** (repo-specific upload token)
+- `CODECOV_URL` is set at **group level** (instance URL — shared across repos)
 ```
 
 **GitHub PR body:**
