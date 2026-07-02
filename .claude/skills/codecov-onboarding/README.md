@@ -12,6 +12,7 @@ through the entire process.
 | Skill | What it does |
 |---|---|
 | **codecov-onboarding** | Onboards any repo to Codecov — analyzes your project, configures CI, uploads coverage with proper flags |
+| **codecov-setup** | Automated bulk onboarding from an audit CSV — opens prepare/enable PRs across many repos with no Q&A |
 | **add-codecov-yml** | Quick-path: just adds a `.codecov.yml` config file to a repo and opens a PR (no CI setup) |
 | **codecov-config** | Routes you to the correct Codecov instance based on where your repo is hosted |
 | **c-cpp-coverage** | Generates coverage for C/C++ projects (gcov/lcov pipeline, workarounds for autotools/CMake/Meson) |
@@ -20,6 +21,7 @@ through the entire process.
 
 **You don't need all of them** — install what's relevant:
 - **Everyone** needs `codecov-onboarding` + `codecov-config`
+- **Bulk / automated rollout** — use `codecov-setup` to onboard many repos at once from an audit CSV
 - **Quick config-only rollout** — use `add-codecov-yml` to add `.codecov.yml` and open a PR without full CI onboarding
 - **C/C++ projects** also need `c-cpp-coverage`
 - **E2E coverage** (containerized apps with Tekton or GitHub Actions) also needs `coverport-integration`

@@ -58,6 +58,12 @@ Rules:
   Create at `https://gitlab.com/-/user_settings/personal_access_tokens`
   (or equivalent for self-hosted GitLab)
 - **Self-hosted GitLab**: Use `https://<host>/api/v4/` as the API base
+- **Token discovery — parent agent only.** Run discovery once before dispatching any
+  subagents. Once resolved, include the literal token value in each subagent's Task
+  instructions as: `"Set GITLAB_TOKEN=<resolved-value> before running any shell commands."`
+  Subagents cannot inherit environment variables from the parent — the value must be
+  embedded in their instructions explicitly. Never log or print the token value.
+
 - **Token discovery order** (try each in order, use first found):
   1. `GITLAB_TOKEN` or `GITLAB_PERSONAL_ACCESS_TOKEN` env var
   2. MCP server config in `~/.claude/settings.json` — look for a GitLab MCP server entry:
@@ -72,7 +78,31 @@ Rules:
          if token:
              break
      ```
-  3. Ask the user directly as last resort
+  3. `git credential fill` — assign to a variable only, never print or echo the value:
+     ```python
+     import subprocess
+     result = subprocess.run(
+         ['git', 'credential', 'fill'],
+         input=f'protocol=https\nhost=<gitlab-hostname>\n'.encode(),
+         capture_output=True
+     )
+     token = None
+     for line in result.stdout.decode().splitlines():
+         if line.startswith('password='):
+             token = line[len('password='):]  # split on first = only, preserves = in value
+             break
+     # token is now available as a Python string within this script only.
+     # Do NOT use os.environ — environment changes don't persist across Shell tool calls
+     # or to subagents. Instead, embed the resolved value directly in each subagent's
+     # instructions so they can: export GITLAB_TOKEN=<value>
+     ```
+     ⚠️ The credential helper may return a **login password** rather than a PAT,
+     depending on how it was configured. Verify the value is a GitLab PAT (typically
+     starts with `glpat-`) before using it as `GITLAB_TOKEN`. If unsure, fall through
+     to step 4 and ask the user.
+  4. Ask the user directly as last resort — request they set `GITLAB_TOKEN` in their
+     environment or provide it in chat for this session only. Do **not** suggest printing
+     or echoing credential values to discover them.
 - **SSL certificate issues**: Self-hosted GitLab instances often use internal CAs. If `urllib` raises SSL errors, create a permissive SSL context (`ssl.CERT_NONE`). Check MCP config for `NODE_TLS_REJECT_UNAUTHORIZED=0` as a signal. Warn the user when disabling SSL verification.
 - **MCP tool fallback**: Do NOT rely on GitLab MCP tools being connected — they may be unavailable to the session or to subagents. Always use direct API calls via `urllib.request` as the primary approach. MCP tools are a convenience, not a dependency.
 
