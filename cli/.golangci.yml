@@ -1,0 +1,50 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - nilerr
+  settings:
+    gosec:
+      excludes:
+        - G104
+        - G204
+        - G301
+        - G302
+        - G304
+        - G306
+        - G703
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - os.Remove
+        - os.RemoveAll
+    staticcheck:
+      checks:
+        - all
+        - -QF1012
+        - -ST1000
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

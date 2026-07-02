@@ -37,7 +37,7 @@ spec:
 
   steps:
     - name: collect-coverage
-      image: quay.io/myorg/coverport:latest
+      image: quay.io/konflux-ci/coverport:latest
       env:
         - name: SNAPSHOT
           value: $(params.SNAPSHOT)

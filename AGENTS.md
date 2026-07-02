@@ -16,7 +16,6 @@ cd instrumentation/go && go test ./... -v -cover
 
 - `cli/` — Go CLI (cobra): `cmd/` commands, `internal/` business logic, `pkg/client/` HTTP/K8s client
 - `instrumentation/` — Coverage HTTP servers: `go/`, `python/`, `nodejs/`
-- `coverage-processor/` — Tekton pipeline for Quay webhook processing + SonarCloud upload
 - `.claude/skills/` — Agent skills for coverage onboarding workflows
 
 ## Conventions
@@ -31,7 +30,7 @@ cd instrumentation/go && go test ./... -v -cover
 
 - Don't add external dependencies to instrumentation servers (keep them copy-paste embeddable)
 - Don't modify `.tekton/` YAML without understanding Konflux PaC conventions
-- Don't run `make lint` in CI without installing golangci-lint first (CI uses `go vet` only)
+- Don't change `.golangci.yml` without running `golangci-lint run ./...` locally first
 - Don't add `go.work` files (components have separate modules intentionally)
 
 ## Pattern References

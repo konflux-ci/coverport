@@ -466,7 +466,7 @@ print('XML_GENERATED:' + xml_path)
 
 	// Step 4: Cleanup temp file in pod
 	cleanupCmd := []string{"python", "-c", "import os; os.remove('/dev/shm/coverage.xml')"}
-	c.execInPod(ctx, podName, containerName, cleanupCmd) //nolint: ignore cleanup errors
+	c.execInPod(ctx, podName, containerName, cleanupCmd) //nolint:errcheck // cleanup errors intentionally ignored
 
 	return nil
 }
@@ -1041,7 +1041,7 @@ func (c *CoverageClient) PushCoverageArtifact(ctx context.Context, testName stri
 	if err != nil {
 		return fmt.Errorf("create file store: %w", err)
 	}
-	defer fs.Close()
+	defer func() { _ = fs.Close() }()
 	fmt.Printf("   ✓ File store created\n")
 
 	// Add all files from the test directory
@@ -1094,7 +1094,7 @@ func (c *CoverageClient) PushCoverageArtifact(ctx context.Context, testName stri
 		ManifestAnnotations: opts.Annotations,
 	}
 
-	manifestDesc, err := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1_RC4, artifactType, packOpts)
+	manifestDesc, err := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1, artifactType, packOpts)
 	if err != nil {
 		return fmt.Errorf("pack manifest: %w", err)
 	}
@@ -1255,7 +1255,7 @@ func (c *CoverageClient) detectContainerPaths(lines []string) map[string]string 
 
 	err = filepath.Walk(absSourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip errors
+			return nil //nolint:nilerr // intentionally skip walk errors for missing/inaccessible files
 		}
 		if info.IsDir() {
 			// Skip common directories that won't have source code
