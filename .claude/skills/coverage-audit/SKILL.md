@@ -58,6 +58,12 @@ Rules:
   Create at `https://gitlab.com/-/user_settings/personal_access_tokens`
   (or equivalent for self-hosted GitLab)
 - **Self-hosted GitLab**: Use `https://<host>/api/v4/` as the API base
+- **Token discovery — parent agent only.** Run discovery once before dispatching any
+  subagents. Once resolved, include the literal token value in each subagent's Task
+  instructions as: `"Set GITLAB_TOKEN=<resolved-value> before running any shell commands."`
+  Subagents cannot inherit environment variables from the parent — the value must be
+  embedded in their instructions explicitly. Never log or print the token value.
+
 - **Token discovery order** (try each in order, use first found):
   1. `GITLAB_TOKEN` or `GITLAB_PERSONAL_ACCESS_TOKEN` env var
   2. MCP server config in `~/.claude/settings.json` — look for a GitLab MCP server entry:
