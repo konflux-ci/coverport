@@ -72,15 +72,9 @@ Rules:
          if token:
              break
      ```
-  3. `git credential fill` — delegates to whatever credential helper the user has
-     configured (`store`, `libsecret`, `osxkeychain`, etc.), same mechanism git uses
-     for `git push`/`git clone`:
-     ```bash
-     printf "protocol=https\nhost=<gitlab-hostname>\n" | git credential fill 2>/dev/null \
-       | grep "^password=" | cut -d= -f2
-     ```
-     Replace `<gitlab-hostname>` with the actual host (e.g. `gitlab.cee.redhat.com`).
-  4. Ask the user directly as last resort
+  3. Ask the user directly as last resort — request they set `GITLAB_TOKEN` in their
+     environment or provide it in chat for this session only. Do **not** suggest printing
+     or echoing credential values to discover them.
 - **SSL certificate issues**: Self-hosted GitLab instances often use internal CAs. If `urllib` raises SSL errors, create a permissive SSL context (`ssl.CERT_NONE`). Check MCP config for `NODE_TLS_REJECT_UNAUTHORIZED=0` as a signal. Warn the user when disabling SSL verification.
 - **MCP tool fallback**: Do NOT rely on GitLab MCP tools being connected — they may be unavailable to the session or to subagents. Always use direct API calls via `urllib.request` as the primary approach. MCP tools are a convenience, not a dependency.
 
