@@ -74,7 +74,7 @@ Rules:
      ```
   3. `git credential fill` — assign to a variable only, never print or echo the value:
      ```python
-     import subprocess, os
+     import subprocess
      result = subprocess.run(
          ['git', 'credential', 'fill'],
          input=f'protocol=https\nhost=<gitlab-hostname>\n'.encode(),
@@ -85,8 +85,10 @@ Rules:
          if line.startswith('password='):
              token = line[len('password='):]  # split on first = only, preserves = in value
              break
-     if token:
-         os.environ['GITLAB_TOKEN'] = token  # makes it available to all subsequent shell commands
+     # token is now available as a Python string within this script only.
+     # Do NOT use os.environ — environment changes don't persist across Shell tool calls
+     # or to subagents. Instead, embed the resolved value directly in each subagent's
+     # instructions so they can: export GITLAB_TOKEN=<value>
      ```
      ⚠️ The credential helper may return a **login password** rather than a PAT,
      depending on how it was configured. Verify the value is a GitLab PAT (typically
