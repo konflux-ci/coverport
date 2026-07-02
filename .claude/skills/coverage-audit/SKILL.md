@@ -72,7 +72,25 @@ Rules:
          if token:
              break
      ```
-  3. Ask the user directly as last resort — request they set `GITLAB_TOKEN` in their
+  3. `git credential fill` — assign to a variable only, never print or echo the value:
+     ```python
+     import subprocess
+     result = subprocess.run(
+         ['git', 'credential', 'fill'],
+         input=f'protocol=https\nhost=<gitlab-hostname>\n'.encode(),
+         capture_output=True
+     )
+     token = None
+     for line in result.stdout.decode().splitlines():
+         if line.startswith('password='):
+             token = line[len('password='):]  # split on first = only, preserves = in value
+             break
+     ```
+     ⚠️ The credential helper may return a **login password** rather than a PAT,
+     depending on how it was configured. Verify the value is a GitLab PAT (typically
+     starts with `glpat-`) before using it as `GITLAB_TOKEN`. If unsure, fall through
+     to step 4 and ask the user.
+  4. Ask the user directly as last resort — request they set `GITLAB_TOKEN` in their
      environment or provide it in chat for this session only. Do **not** suggest printing
      or echoing credential values to discover them.
 - **SSL certificate issues**: Self-hosted GitLab instances often use internal CAs. If `urllib` raises SSL errors, create a permissive SSL context (`ssl.CERT_NONE`). Check MCP config for `NODE_TLS_REJECT_UNAUTHORIZED=0` as a signal. Warn the user when disabling SSL verification.
