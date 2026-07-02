@@ -58,6 +58,21 @@ func TestDetectFormat(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "Rust profraw files",
+			files: map[string]string{
+				"default_12345.profraw": "profraw data",
+			},
+			expected: FormatRust,
+		},
+		{
+			name: "multiple Rust profraw files",
+			files: map[string]string{
+				"default_12345.profraw": "profraw data",
+				"default_67890.profraw": "more profraw data",
+			},
+			expected: FormatRust,
+		},
+		{
 			name: "Go takes precedence over Python",
 			files: map[string]string{
 				"covmeta.abc123": "meta",
