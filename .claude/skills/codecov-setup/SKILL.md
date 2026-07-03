@@ -235,11 +235,13 @@ No push in either case. In bulk mode, dispatch one subagent per repo using Bulk 
 
 1. **Idempotency check:** Check `.codecov-setup-progress.json` for this repo under the
    current mode. If status is `committed_locally` or `opened`, skip.
-2. **Clone the repo fresh** (no token needed):
+2. **Clone the repo fresh:**
    ```bash
    git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
    ```
+   **GitHub repos:** use `gh repo clone <repo-url> /tmp/codecov-setup/<repo-name>` instead
+   — avoids interactive auth prompts on private repos.
 3. **Create branch** (name from table above).
 4. **Identify CI file** from the audit CSV (`CI System` column):
    - `gitlab-ci` → `.gitlab-ci.yml`
