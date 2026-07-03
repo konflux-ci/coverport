@@ -36,11 +36,12 @@ These paths are relative to the skills directory (`.claude/skills/` or `.cursor/
 ### Operations and Targeting
 
 **Operations:**
-- `prepare` — clone each repo, apply disabled changes (coverage flags + disabled upload
+- `prepare` — clone each repo fresh, apply disabled changes (coverage flags + disabled upload
   job + `.codecov.yml`), commit locally, print diff. **Always stops here — no push.**
   Records `committed_locally` in the progress file.
-- `enable` — clone each repo, remove disable guard, set real instance URL, commit locally,
-  print diff. **Always stops here — no push.** Records `committed_locally` in progress file.
+- `enable` — clone each repo fresh (independent of any prior prepare run), remove disable
+  guard, commit locally, print diff. **Always stops here — no push.** Records
+  `committed_locally` in progress file.
 - `apply` — push + open MR/PR for all repos with `committed_locally` status in the progress
   file. Reads progress file to find what's ready, confirms local clone still exists, then
   pushes in batch waves. Works for both prepare and enable changes.
@@ -66,7 +67,7 @@ Recognize the user's intent and map it to the appropriate operation:
 |---|---|---|
 | "prepare for ~/Downloads/audit.csv" | prepare | CSV |
 | "set up all the Onboard=TRUE repos in disabled state" | prepare | CSV (ask for path if not given) |
-| "enable for audit-q2.csv — instance is live" | enable | CSV |
+| "enable codecov" / "enable for audit.csv" / "activate the upload jobs" / "the instance is live, enable it" | enable | CSV (ask for path if not given) |
 | "open the MRs" / "push those changes" / "apply" | apply | reads progress file |
 | "set up Codecov for myrepo — instance isn't ready yet" | prepare | single repo |
 | "add Codecov to this repo, instance is already running" | full | single repo |
@@ -74,7 +75,10 @@ Recognize the user's intent and map it to the appropriate operation:
 | "prepare local for audit.csv" / "show me the diffs first" | prepare | CSV |
 
 If the user doesn't mention a CSV path, ask for it before proceeding. If operation is
-ambiguous, ask whether the Codecov instance is available yet (prepare vs full).
+genuinely ambiguous (e.g. "set up codecov" with no other context), ask: "Have the prepare
+MRs already been merged? If yes → enable; if no → prepare or full."
+
+**If the user explicitly names an operation, run it — do not ask for confirmation.**
 
 ### CSV Format
 
@@ -105,6 +109,7 @@ manual-attention list.
 | TypeScript (jest/vitest) | Append `--coverage` to `jest` or `vitest` | `coverage/lcov.info` |
 | TypeScript (Angular/Karma) | Append `--code-coverage` to `ng test --no-watch`; lcov at `coverage/<project-name>/lcov.info` — **always add to manual-attention:** "verify headless Chrome configured (`--browsers ChromeHeadless` or `karma.conf.js`) before enabling" | `coverage/<project-name>/lcov.info` |
 | C/C++ | Delegate entirely to `c-cpp-coverage` skill | `coverage.info` |
+| HCL/Terraform, Helm, YAML-only, pure config | **No coverage possible** — skip this repo entirely. Do not add an upload job. Add to manual-attention: "No coverage-generating tests — <language> has no standard coverage tooling" | — |
 | Other | Insert `# TODO: add coverage flags for <language>` near test step | — |
 
 **General injection rule:** Insert flags immediately before any trailing package/path argument
@@ -161,79 +166,81 @@ Replace the existing `python -m unittest <args>` line with:
 
 Applied on top of the upload job templates read from `codecov-onboarding`.
 
-#### GitLab CI — Prepare Modifier
+#### GitLab CI Modifier
 
-Read the upload job template from `codecov-onboarding` Option C. Then apply:
+Read the upload job template from `codecov-onboarding` Option C. Apply fields per operation:
 
-1. **Do not add a `variables:` block** for `CODECOV_URL` or `CODECOV_TOKEN`. The job
-   references both as CI/CD variables — set at different scopes:
-   - `CODECOV_URL` — set at the **group level** (shared across all repos in the group);
-     changing it once (e.g. staging → production) updates every repo with no YAML changes
-   - `CODECOV_TOKEN` — set at the **project level** only; it is a repo-specific upload
-     token from the Codecov UI and must not be set at group level
-2. Add the required runner tag:
-   ```yaml
-   tags:
-     - itup-alm-x86
-   ```
-3. Append this `rules:` block (overrides all other rules, making the job inert):
-   ```yaml
-     rules:
-       - when: never   # DISABLED — remove this block when Codecov instance is ready
-   ```
+| Field | Prepare | Enable |
+|---|---|---|
+| `variables:` block | Do not add — `CODECOV_URL` (group) and `CODECOV_TOKEN` (project) are set as CI/CD variables outside YAML | same |
+| `tags:` | Add `[itup-alm-x86]` | Verify present; add if missing |
+| `rules:` | Add `when: never` block (disables job) | Remove `when: never`; add trigger rules (see below) |
 
-#### GitLab CI — Enable Modifier
+**Prepare `rules:` block:**
+```yaml
+  rules:
+    - when: never   # DISABLED — remove this block when Codecov instance is ready
+```
 
-1. Verify `tags: [itup-alm-x86]` is present; add if missing.
-2. Remove the entire `rules: - when: never` block.
-3. Add proper trigger rules:
-   ```yaml
-     rules:
-       - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-       - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-     allow_failure: true
-   ```
+**Enable `rules:` block:**
+```yaml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  allow_failure: true
+```
 
-No URL substitution needed — `CODECOV_URL` is a CI/CD variable, not hardcoded in the YAML.
+#### GitHub Actions Modifier
 
-#### GitHub Actions — Prepare Modifier
+Read the upload step template from `codecov-onboarding` Option A. Add to the **existing
+primary test workflow file** — do not create a new file. `CODECOV_URL` and `CODECOV_TOKEN`
+are repository secrets; do not hardcode the URL.
 
-Read the upload step template from `codecov-onboarding` Option A (self-hosted/token auth
-variant). Add to the **existing primary test workflow file** — do not create a new file.
+| Field | Prepare | Enable |
+|---|---|---|
+| `if:` on upload step | Add `if: false` (disables step) | Remove `if: false` |
+| `url:` | Verify `${{ secrets.CODECOV_URL }}` present; add if missing | same |
 
-Apply `if: false` and `url: PLACEHOLDER` to the upload step:
+**Step template (prepare — with `if: false`):**
 ```yaml
     - name: Upload coverage to Codecov
       if: false  # DISABLED — remove this line when Codecov instance is ready
       uses: codecov/codecov-action@v5
       with:
-        url: PLACEHOLDER
-        # auth fields carried over from Option A template unchanged
+        url: ${{ secrets.CODECOV_URL }}
+        token: ${{ secrets.CODECOV_TOKEN }}
         flags: unit-tests
         files: <coverage-file-path>
         fail_ci_if_error: false
 ```
 
-#### GitHub Actions — Enable Modifier
 
-1. Read the real Codecov instance URL from `codecov-config/CONFIG.md`.
-2. Replace `url: PLACEHOLDER` with `url: <real-instance-url>`.
-3. Remove the `if: false` line from the upload step.
+### Prepare / Enable Workflow
 
-### Prepare Workflow
+Both operations clone fresh, inject coverage flags, write `.codecov.yml`, apply the
+appropriate CI modifier, commit, and stop — the only differences are:
 
-For each target repo, clones, applies disabled changes, commits, shows diff — then stops.
-No push. In bulk mode, dispatch one subagent per repo using Bulk Dispatch.
+| | `prepare` | `enable` |
+|---|---|---|
+| Pre-check | — | Confirm instance URL is set in `codecov-config/CONFIG.md` |
+| CI modifier | Prepare modifier (`when: never` / `if: false`) | Enable modifier (real URL, no guard) |
+| Branch | `add-codecov-config` | `enable-codecov-coverage` |
+| Commit message | `chore: add codecov setup (disabled, pending internal instance)` | `chore: enable codecov upload to <instance-url>` |
+| Mode recorded | `prepare` | `enable` |
 
-1. **Idempotency check:** Check `.codecov-setup-progress.json` for this repo under mode
-   `prepare`. If status is `committed_locally` or `opened`, skip.
-2. **Clone the repo:**
+**[enable only — pre-check]** Read instance URL from `codecov-config/CONFIG.md`. If still
+`PLACEHOLDER`, stop: "Instance URL is not set in codecov-config/CONFIG.md — cannot run enable."
+
+No push in either case. In bulk mode, dispatch one subagent per repo using Bulk Dispatch.
+
+1. **Idempotency check:** Check `.codecov-setup-progress.json` for this repo under the
+   current mode. If status is `committed_locally` or `opened`, skip.
+2. **Clone the repo fresh** (no token needed):
    ```bash
    git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
    ```
-   No token needed to clone.
-3. **Create branch:** `git checkout -b add-codecov-config`
+3. **Create branch** (name from table above).
 4. **Identify CI file** from the audit CSV (`CI System` column):
    - `gitlab-ci` → `.gitlab-ci.yml`
    - `github-actions` → `.github/workflows/` (find the primary test workflow)
@@ -244,115 +251,95 @@ No push. In bulk mode, dispatch one subagent per repo using Bulk Dispatch.
    - `github-actions` declared but no `.github/workflows/` → "No GitHub Actions workflows found — CI not yet configured"
 
 5. **Find test command** in the CI file by searching for the language's test runner.
-6. **Inject coverage flags** per Coverage Flag Detection. If no command found, insert
-   `# TODO` comment and add to manual-attention list.
-7. **Read upload template** from `codecov-onboarding` SKILL.md (GitLab → Option C; GitHub → Option A).
-8. **Apply the GitLab or GitHub prepare modifier** (see CI Job Modifiers above).
-9. **Write the change** to the CI config:
-   - GitLab: append the modified job block to `.gitlab-ci.yml`
-   - GitHub: add the modified upload step to `.github/workflows/<test-workflow>.yml` — do not create a new workflow file
-10. **Handle `.codecov.yml`** using the template from `add-codecov-yml/skill.md`:
+6. **Inject coverage flags** per Coverage Flag Detection.
+   - If the repo's language has no coverage tooling (HCL/Terraform, Helm, pure config, etc.),
+     **stop here for this repo** — do not add an upload job or commit anything. Add to
+     manual-attention: "No coverage-generating tests — <language> has no standard coverage tooling."
+   - If no test command is found in the CI file, insert a `# TODO` comment and add to
+     manual-attention list.
+7. **[GitLab CI only] Expose coverage file as artifact** on the same test job:
+   Add or update the `artifacts:` block in the test job to include the coverage output
+   file (path from Coverage Flag Detection table). If an `artifacts:` block already exists,
+   add the coverage file to its `paths:` list; do not replace existing entries:
+   ```yaml
+     artifacts:
+       paths:
+         - <coverage-output-file>   # e.g. coverage.xml, coverage.out
+       expire_in: 1 day
+   ```
+   Without this, the upload job cannot locate the coverage file.
+8. **Read upload template** from `codecov-onboarding` SKILL.md (GitLab → Option C; GitHub → Option A).
+9. **Check for rules mismatch [GitLab CI only]:** Compare the test job's `rules:` block
+   with the upload template's `rules:` block. The upload job must only fire on pipelines
+   where the test job also ran — otherwise it will fail with no coverage file.
+   - If the upload job's rules are **broader** than the test job's (e.g. upload fires on
+     `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` but the test job only fires on
+     `merge_request_event`): narrow the upload job's rules to match the test job's rules
+     exactly. Note this in the commit message and add to manual-attention:
+     "Upload job rules narrowed to match test job — coverage only uploads on MR events,
+     not main branch pushes. Consider expanding test job rules if main-branch coverage is needed."
+   - If the test job has `changes:` file filters on its rules: the upload job does not
+     need to mirror these (Codecov uploads are cheap); keeping the upload job trigger
+     broader than the file filter is acceptable as long as the test job ran first via `needs:`.
+10. **Apply the CI modifier** for the current mode (see CI Job Modifiers above).
+11. **Write the change** to the CI config:
+    - GitLab: append the modified job block to `.gitlab-ci.yml`
+    - GitHub: add the modified upload step to `.github/workflows/<test-workflow>.yml` — do not create a new workflow file
+12. **Handle `.codecov.yml`** using the template from `add-codecov-yml/skill.md`:
     - Absent → generate from template, write to repo root
     - Present and compliant → skip
     - Present but non-compliant → fix in-place
-11. **Commit:**
+13. **Commit** (message from table above):
     ```bash
     git add -A
-    git commit -m "chore: add codecov setup (disabled, pending internal instance)"
+    git commit -m "<commit message from table>"
     ```
-12. **Print diff:** `git show HEAD --stat --patch`
-13. **Record in progress file:**
+14. **Print diff:** `git show HEAD --stat --patch`
+15. **Return result** — output a JSON object for the parent to collect:
     ```json
-    {"repo": "<url>", "status": "committed_locally", "mode": "prepare",
-     "branch": "add-codecov-config", "local_path": "/tmp/codecov-setup/<repo-name>"}
+    {"repo": "<url>", "status": "committed_locally", "mode": "<prepare|enable>",
+     "branch": "<branch from table>", "local_path": "/tmp/codecov-setup/<repo-name>"}
     ```
-14. **Stop.** Run `apply` when ready to push.
-
-### Enable Workflow
-
-For each target repo, clones, removes the disable guard, commits, shows diff — then stops.
-No push. In bulk mode, dispatch one subagent per repo using Bulk Dispatch.
-
-1. **Read instance URL** from `codecov-config/CONFIG.md`. If still `PLACEHOLDER`, stop:
-   "Instance URL is not set in codecov-config/CONFIG.md — cannot run enable."
-2. **Idempotency check:** Check progress file for this repo under mode `enable`. If
-   `committed_locally` or `opened`, skip.
-3. **Clone** the repo (no token needed):
-   ```bash
-   git clone <repo-url> /tmp/codecov-setup/<repo-name>
-   cd /tmp/codecov-setup/<repo-name>
-   ```
-4. **Verify** the disabled upload job/step is present in the default branch:
-   - GitLab: look for a job block containing `when: never`
-   - GitHub: look for `if: false` on a step named `Upload coverage to Codecov`
-
-   If not found, skip and add to **Needs Manual Attention**: "prepare change not found in
-   default branch — was the prepare MR merged?"
-5. **Create branch:** `git checkout -b enable-codecov-coverage`
-6. **Apply the GitLab or GitHub enable modifier** (see CI Job Modifiers above).
-7. **Commit:**
-   ```bash
-   git add -A
-   git commit -m "chore: enable codecov upload to <instance-url>"
-   ```
-8. **Print diff:** `git show HEAD --stat --patch`
-9. **Record in progress file:**
-   ```json
-   {"repo": "<url>", "status": "committed_locally", "mode": "enable",
-    "branch": "enable-codecov-coverage", "local_path": "/tmp/codecov-setup/<repo-name>"}
-   ```
-10. **Stop.** Run `apply` when ready to push.
+    **In bulk mode (dispatched as a subagent):** do NOT write the progress file — the
+    parent collects all subagent results and writes the file once after the wave completes.
+    **In single-repo mode (`--target`):** write this entry directly to the progress file.
+16. **Stop.** Run `apply` when ready to push.
 
 ### Apply Workflow
 
-Pushes and opens MRs/PRs for all repos that were prepared or enabled locally.
+For each repo with `committed_locally` status, pushes and opens MR/PR.
+In bulk mode, dispatch one subagent per repo using Bulk Dispatch.
 
-1. **Read progress file** (`.codecov-setup-progress.json`). Collect all entries where
-   `status = "committed_locally"`. If none found, report: "No locally committed repos
-   found in progress file — run `prepare` or `enable` first."
-2. **Confirm local clones:** For each entry, verify `local_path` exists and that the
-   recorded `branch` specifically has an unpushed commit:
+1. **Resolve `GITLAB_TOKEN`** using the discovery logic from `coverage-audit/SKILL.md`
+   (env var → `~/.claude/settings.json` → `git credential fill` via Python → ask user).
+   **Never embed a token value in instructions. Never run `git credential fill` or
+   `glab auth` as a shell/bash command.**
+2. **Push and open MR/PR** following `add-codecov-yml/skill.md § 4`:
    ```bash
-   git -C <local_path> rev-list --count <branch> --not --remotes
+   git -C <local_path> push -u origin <branch>
    ```
-   Use the `branch` value from the progress entry (e.g. `add-codecov-config` or
-   `enable-codecov-coverage`). A result of `0` means nothing to push. If the path is
-   missing or the count is `0`, add to **Needs Manual Attention**: "local clone missing
-   or branch already pushed — re-run prepare/enable to regenerate."
-3. **Resolve `GITLAB_TOKEN`** for GitLab repos using the discovery logic in
-   `coverage-audit/SKILL.md` (env var → `~/.claude/settings.json` → `git credential fill`
-   for the repo's host → ask user). Pass the resolved token to each subagent.
-4. **Announce:**
+   MR/PR title and body: see PR Description Templates below (based on `mode` field).
+3. **Return result** — output a JSON object for the parent to collect:
+   ```json
+   {"repo": "<url>", "status": "opened", "pr_url": "<mr-or-pr-url>"}
    ```
-   Found N repos ready to push. Dispatching in <num_waves> wave(s) (batch: <batch_size>).
-   ```
-5. **Dispatch push+MR subagents** in batch waves (see Bulk Dispatch). Each subagent:
-   a. `cd <local_path>`
-   b. Push and open MR/PR following `add-codecov-yml/skill.md § 4`:
-      ```bash
-      git push -u origin <branch>
-      ```
-      - MR/PR title and body: see PR Description Templates below (based on `mode` field)
-   c. Return the MR/PR URL
-6. **Update progress file:** change each repo's status from `committed_locally` → `opened`,
-   add `pr_url`.
-7. **Print session summary.**
+   **In bulk mode:** do NOT write the progress file — the parent collects all subagent
+   results and updates the file once after the wave completes.
+   **In single-repo mode (`--target`):** write the entry directly to the progress file.
+4. **[Parent, after all waves]** Update progress file — change status from
+   `committed_locally` → `opened`, add `pr_url`. Print session summary.
 
 ### Full Mode Workflow
 
 Convenience: runs prepare + apply in one shot with no diff review stop.
+In bulk mode, dispatch one subagent per repo using Bulk Dispatch.
 
 1. **Idempotency check:** Check progress file for this repo under mode `full`. If
    `committed_locally` or `opened`, skip.
 2. **Read instance URL** from `codecov-config/CONFIG.md`. If still `PLACEHOLDER`, stop.
-3. **Clone → branch → inject coverage flags → read template → apply enable modifier →
-   handle `.codecov.yml` → commit** (same as Prepare Workflow steps 2–11), with:
-   - Branch name: `add-codecov-coverage`
-   - Apply the **enable modifier** (not prepare modifier) using the real URL
-4. **Immediately push and open MR/PR** following `add-codecov-yml/skill.md § 4` (no stop).
-   - Title: `feat: add Codecov coverage reporting`
-   - Body: "Adds fully enabled Codecov coverage upload. Coverage uploads begin on next pipeline run after merge."
-5. **Record** the MR/PR URL in the session summary.
+3. **Run the Prepare / Enable Workflow** for this repo in **enable mode**, using branch
+   `add-codecov-coverage`. Run through the **Return result** step. Do not stop.
+4. **Run the Apply Workflow** for this repo. Use the enable mode PR description template.
 
 ### Bulk Dispatch
 
@@ -363,7 +350,14 @@ wave pattern but sources repos from the progress file instead of a CSV.
 
 1. **Source repos:**
    - `prepare` / `enable` / `full`: parse CSV, filter `Onboard=TRUE` AND `Has Codecov ≠ TRUE`
-   - `apply`: read progress file, collect `committed_locally` entries (confirmed by local clone check)
+   - `apply`: read `.codecov-setup-progress.json`, collect entries where `status = "committed_locally"`.
+     If none, report: "No locally committed repos found — run `prepare` or `enable` first."
+     For each entry, verify `local_path` exists and the recorded `branch` has an unpushed commit:
+     ```bash
+     git -C <local_path> rev-list --count <branch> --not --remotes
+     ```
+     A result of `0` or missing path → **Needs Manual Attention**: "local clone missing or branch
+     already pushed — re-run prepare/enable to regenerate." Exclude these from dispatch.
 2. **Check progress file:** skip repos already recorded as `committed_locally` or `opened`
    under the same mode.
 3. **Split into waves** of `batch_size`.
@@ -374,15 +368,21 @@ wave pattern but sources repos from the progress file instead of a CSV.
    ```
 5. **For each wave (sequentially):**
    a. Dispatch all repos simultaneously (all Task calls in a single turn). Each subagent
-      receives: repo URL, mode, instance URL (if needed), GITLAB_TOKEN (if resolved),
-      and instructions to run the single-repo workflow for that repo only.
+      receives: repo URL, language, CI system, instance URL (if needed), and instructions
+      to execute the workflow for this operation:
+      - `prepare` → run **Prepare / Enable Workflow** for this repo (prepare mode)
+      - `enable` → run **Prepare / Enable Workflow** for this repo (enable mode)
+      - `full` → run **Full Mode Workflow** for this repo
+      - `apply` → run **Apply Workflow** for this repo
+
+      Each subagent discovers `GITLAB_TOKEN` independently using the discovery logic in
+      `coverage-audit/SKILL.md` — do not pass the token value in instructions.
    b. Wait for all subagents in this wave to complete.
-   c. Append results to `.codecov-setup-progress.json`:
+   c. **Parent appends results to `.codecov-setup-progress.json`** (sole writer — subagents
+      return results as output, they do not write the file themselves):
       ```json
       {
-        "mode": "prepare",
-        "batch_size": 15,
-        "timestamp": "<ISO-8601>",
+        "mode": "prepare", "batch_size": 15, "timestamp": "<ISO-8601>",
         "results": [
           {"repo": "<url>", "status": "committed_locally", "mode": "prepare",
            "branch": "add-codecov-config", "local_path": "/tmp/codecov-setup/<repo-name>"},
@@ -434,9 +434,11 @@ The upload step is **disabled** (`if: false`) — zero CI impact until the enabl
 
 **Added:** coverage flags in test command · `Upload coverage to Codecov` step (disabled) · `.codecov.yml`
 
-**Auth:** confirm the repo is configured with the Codecov instance per `codecov-config/CONFIG.md`.
+**Before merging the enable PR**, set these repository secrets in Settings → Secrets and variables → Actions:
+- `CODECOV_TOKEN` — repo-specific upload token from the Codecov UI (repository level)
+- `CODECOV_URL` — instance URL from `codecov-config/CONFIG.md` (can be set at org level to share across repos)
 
-**Next:** a follow-up PR will remove `if: false` and set the instance URL.
+**Next:** a follow-up PR will remove `if: false`.
 ```
 
 #### Enable Mode
@@ -462,7 +464,8 @@ Activates the upload step added in the prepare PR. Coverage uploads begin on the
 next workflow run after merge.
 
 **Removed:** `if: false` disable guard  
-**Set:** `url:` to the real instance URL
+**Prerequisite:** `CODECOV_TOKEN` (repository level) and `CODECOV_URL` (org or repository level)
+must be set as repository secrets before merging.
 ```
 
 ### Common Mistakes
@@ -478,6 +481,8 @@ Real subagent errors observed in production runs.
 | Used `--cov=.` without a TODO comment | Always add `# TODO: replace . with the actual package name` on the same line |
 | Created a new GitHub Actions workflow file for the upload step | Always add the upload step to the existing primary test workflow file |
 | Opened an MR when no CI config file was found for the declared CI system | Skip and add to manual-attention; don't open MRs for repos with no CI |
+| Added a placeholder upload job to a repo with no coverage-generating tests (e.g. pure HCL/Terraform) | Skip entirely — no upload job, no commit; flag as manual-attention |
+| Upload job fires on pipelines where the test job doesn't run (rules mismatch) | Narrow upload job rules to match the test job's trigger conditions; note in manual-attention |
 
 ### Session Summary Format
 
