@@ -12,7 +12,7 @@ coverage:
         target: auto
     patch:
       default:
-        target: auto
+        target: 80%
 
 parsers:
   go:
@@ -23,6 +23,11 @@ ignore:
   - ".claude/**"
   - "docs/**"
   - "examples/**"
+  - ".github/**"
+  - "**/*.yml"
+  - "**/*.yaml"
+  - "**/*.toml"
+  - "**/*.md"
 
 flags:
   unit-tests:
