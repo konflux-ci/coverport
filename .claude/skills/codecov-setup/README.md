@@ -8,13 +8,14 @@ no interactive Q&A required.
 
 ## What This Skill Does
 
-| Phase | What happens |
+| Operation | What happens |
 |---|---|
-| **Prepare** | Adds a disabled CI upload job + coverage flags + `.codecov.yml` to every repo. Zero CI impact — the job is inert until the enable phase. |
-| **Enable** | Removes the disable guard and fills in the real Codecov instance URL. One PR per repo activates coverage uploads. |
-| **Full** | Prepare + enable in a single PR (use when the Codecov instance is already live). |
+| **prepare** | Clones each repo fresh, adds a disabled CI upload job + coverage flags + `.codecov.yml`, commits locally, prints diff. **No push.** Zero CI impact. |
+| **enable** | Clones each repo fresh, removes the disable guard and sets the real Codecov URL, commits locally, prints diff. **No push.** |
+| **apply** | Pushes locally committed changes and opens one MR/PR per repo. Works for both prepare and enable changes. |
+| **full** | prepare + apply in one shot (use when the Codecov instance is already live). |
 
-In bulk mode, all repos are processed in parallel — one subagent per repo.
+In bulk mode, repos are processed in parallel waves of up to 15 at a time — one subagent per repo per wave.
 
 ## When to Use This Skill vs codecov-onboarding
 
@@ -33,7 +34,7 @@ Produced by the `coverage-audit` skill. Must contain these columns:
 
 | Column | Description |
 |---|---|
-| `Repo URL` | Full HTTPS URL to the repository |
+| `URL` | Full HTTPS URL to the repository |
 | `Onboard` | `TRUE` to include this repo |
 | `Language` | Go, Python, JavaScript, TypeScript, C, C++ |
 | `CI System` | `gitlab-ci` or `github-actions` |
@@ -127,9 +128,18 @@ the Onboard=TRUE repos so we're ready to flip the switch when it is?
 
 ```
 The internal Codecov instance just went live. CONFIG.md has been updated.
-Can you go through audit-2026-q2.csv and open enable PRs for all the repos
-that had their prepare PRs merged?
+Enable coverage for all the repos in audit-2026-q2.csv.
 ```
+
+Enable is standalone — it clones fresh and does not require prepare MRs to be merged first.
+
+### Apply (push locally committed changes and open MRs)
+
+```
+Open the MRs for all the repos we prepared.
+```
+
+Reads the progress file for all `committed_locally` entries and pushes them in waves.
 
 ### Single-repo prepare
 
@@ -147,33 +157,27 @@ opening any PRs.
 
 Infers changes from CSV columns alone — instant, zero network.
 
-### Prepare local (commit locally, review diffs, no MRs opened)
-
-```
-Prepare local for ~/audit.csv — commit changes locally and show me
-the exact diff for each repo before we open any MRs.
-```
-
-Clones every repo (one subagent per repo, in parallel), applies all
-prepare-mode changes, commits locally, and prints `git show HEAD` per
-repo. No push, no MR. Local clones remain in `/tmp/codecov-setup/`
-for inspection. Run `prepare` when ready to push and open real MRs.
-
 ---
 
 ## Two-Phase Rollout Overview
 
 ```
-Phase 1 — Prepare PR (now)          Phase 2 — Enable PR (when instance is live)
-─────────────────────────────────    ────────────────────────────────────────────
-+ coverage flags in CI test cmd      - remove 'when: never' / 'if: false'
-+ codecov-upload job (disabled)      + set real CODECOV_URL
-+ .codecov.yml config                PR title: feat: enable Codecov coverage reporting
-PR title: chore: add Codecov
-  coverage config (disabled)
+Step 1 — prepare (local)            Step 2 — apply (open MRs)
+────────────────────────────────    ──────────────────────────
++ coverage flags in CI test cmd     Push branch, open one MR/PR per repo.
++ codecov-upload job (disabled)     MR title: chore: add Codecov coverage
++ .codecov.yml config                 config (disabled)
+Commits locally. No push.
+
+Step 3 — enable (local)             Step 4 — apply (open MRs)
+────────────────────────────────    ──────────────────────────
+- remove 'when: never'/'if: false'  Push branch, open one MR/PR per repo.
++ set real CODECOV_URL              MR title: chore: enable Codecov upload
+Commits locally. No push.            to <instance-url>
 ```
 
-Phase 1 PRs have zero CI impact — the upload job never runs until Phase 2.
+`full` = steps 1+2 in one shot (use when the Codecov instance is already live).
+Prepare MRs have zero CI impact — the upload job never runs until the enable MR is merged.
 
 ---
 
