@@ -117,7 +117,7 @@ Collect raw coverage data from HTTP endpoints or Kubernetes pods.
 - `--test-name` - Test name for identification (auto-generated if not specified)
 - `--source-dir` - Source directory for path remapping (default: .)
 - `--remap-paths` - Enable automatic path remapping (default: true)
-- `--filters` - File patterns to filter from coverage (default: coverage_server.go)
+- `--filters` - File patterns to filter from coverage (default: coverage_server)
 
 **Processing Options:**
 
@@ -165,7 +165,7 @@ This single command replaces 5+ complex bash script steps in Tekton pipelines!
 
 **Coverage Processing Options:**
 
-- `--format` - Coverage format: go, python, nyc, auto (default: auto)
+- `--format` - Coverage format: go, python, nyc, rust, auto (default: auto)
 - `--filters` - File patterns to exclude from coverage
 
 **Upload Options:**

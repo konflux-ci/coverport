@@ -86,7 +86,17 @@ const (
 	FormatGo     CoverageFormat = "go"
 	FormatPython CoverageFormat = "python"
 	FormatNYC    CoverageFormat = "nyc"
+	FormatRust   CoverageFormat = "rust"
 )
+
+// RustCoverageResponse matches the Rust coverage server's response format
+type RustCoverageResponse struct {
+	ProfrawFilename string `json:"profraw_filename"`
+	ProfrawData     string `json:"profraw_data"`  // base64 encoded LLVM profraw data
+	ProfrawSize     int    `json:"profraw_size"`  // size in bytes before encoding
+	Timestamp       uint64 `json:"timestamp"`
+	CoverageEnabled bool   `json:"coverage_enabled"`
+}
 
 // PodMetadata contains information about the pod from which coverage was collected
 type PodMetadata struct {
@@ -142,7 +152,7 @@ func NewClient(namespace, outputDir string) (*CoverageClient, error) {
 		namespace:       namespace,
 		outputDir:       outputDir,
 		httpClient:      &http.Client{Timeout: 30 * time.Second},
-		defaultFilters:  []string{"coverage_server.go"}, // Default: filter out the coverage server itself
+		defaultFilters:  []string{"coverage_server"}, // Default: filter out the coverage server itself
 		sourceDir:       cwd,
 		enablePathRemap: true, // Default: enable automatic path remapping
 	}, nil
@@ -167,7 +177,7 @@ func NewClientForURL(outputDir string) (*CoverageClient, error) {
 		namespace:       "",
 		outputDir:       outputDir,
 		httpClient:      &http.Client{Timeout: 30 * time.Second},
-		defaultFilters:  []string{"coverage_server.go"},
+		defaultFilters:  []string{"coverage_server"},
 		sourceDir:       cwd,
 		enablePathRemap: true,
 	}, nil
@@ -752,6 +762,8 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 	switch format {
 	case FormatPython:
 		return c.collectPythonCoverage(body, testName)
+	case FormatRust:
+		return c.collectRustCoverage(body, testName)
 	case FormatGo:
 		return c.collectGoCoverage(body, testName)
 	default:
@@ -764,6 +776,10 @@ func (c *CoverageClient) detectCoverageFormat(body []byte) CoverageFormat {
 	// Python responses contain "coverage_data" field
 	if bytes.Contains(body, []byte(`"coverage_data"`)) {
 		return FormatPython
+	}
+	// Rust responses contain "profraw_data" field
+	if bytes.Contains(body, []byte(`"profraw_data"`)) {
+		return FormatRust
 	}
 	// Go responses contain "meta_data" and "counters_data" fields
 	if bytes.Contains(body, []byte(`"meta_data"`)) {
@@ -810,6 +826,44 @@ func (c *CoverageClient) collectPythonCoverage(body []byte, testName string) err
 	if resp.FilesCombined > 0 {
 		fmt.Printf("  Combined from %d coverage file(s)\n", resp.FilesCombined)
 	}
+
+	return nil
+}
+
+// collectRustCoverage handles Rust/LLVM profraw coverage format
+func (c *CoverageClient) collectRustCoverage(body []byte, testName string) error {
+	var resp RustCoverageResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("decode Rust coverage response: %w", err)
+	}
+
+	if !resp.CoverageEnabled {
+		return fmt.Errorf("coverage not enabled on Rust target")
+	}
+
+	if resp.ProfrawData == "" {
+		return fmt.Errorf("no profraw data received from Rust coverage server")
+	}
+
+	// Decode base64 profraw data
+	profrawData, err := base64.StdEncoding.DecodeString(resp.ProfrawData)
+	if err != nil {
+		return fmt.Errorf("decode Rust profraw data: %w", err)
+	}
+
+	// Create test-specific subdirectory
+	testDir := filepath.Join(c.outputDir, testName)
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		return fmt.Errorf("create test directory: %w", err)
+	}
+
+	// Save profraw file
+	profrawPath := filepath.Join(testDir, resp.ProfrawFilename)
+	if err := os.WriteFile(profrawPath, profrawData, 0644); err != nil {
+		return fmt.Errorf("write profraw file: %w", err)
+	}
+
+	fmt.Printf("  Saved: %s (%d bytes)\n", profrawPath, len(profrawData))
 
 	return nil
 }
