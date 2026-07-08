@@ -76,13 +76,16 @@ Many of these will already be in the user's message — extract what you can and
 
 2. **Epic key** — Jira epic to link tasks to (always ask — no default). User may provide a Jira URL like `https://redhat.atlassian.net/browse/PROJ-123` — extract the key (`PROJ-123`).
 3. **Jira project** — project key for new tasks (default: derived from epic key)
-4. **GitHub/GitLab org name** — for constructing Codecov URLs. Can often be inferred from repo URLs the user provides, or from the CSV content (repository URLs).
+4. **GitHub/GitLab org name** — used as fallback for repo URLs when the CSV has no `URL` column. Can often be inferred from repo URLs the user provides, or from the CSV content (repository URLs).
 5. **Output directory** — where to write dry-run task files (default: `./jira-tasks-draft/`)
 6. **Task type filter** (optional) — if user only wants certain task types (e.g., `onboard-unit,fix-codecov`)
 7. **Repo filter** (optional) — if user only wants specific repos. User may provide:
    - Repo names: `quay-operator, mirror-registry`
    - GitHub URLs: `https://github.com/quay/quay-operator`
    - Extract the repo name from URLs (last path segment) and pass to `--repos`
+8. **Codecov instance URL** (optional) — if using a self-hosted or staging Codecov instance
+   instead of `app.codecov.io`, pass via `--codecov-url`. The provider prefix (`/gh/` vs `/gl/`)
+   is auto-detected from repo URLs in the CSV (GitLab repos get `/gl/`, GitHub repos get `/gh/`).
 
 ### Step 1b: Check Jira Credentials
 
@@ -174,6 +177,15 @@ python <skill-dir>/scripts/dry-run.py \
 Valid `--types` values: `fix-codecov`, `verify-codecov`, `onboard-unit`, `investigate`, `needs-tests`, `needs-ci`, `onboard-e2e`
 
 Both `--types` and `--repos` can be combined.
+
+For self-hosted or staging Codecov instances:
+```
+python <skill-dir>/scripts/dry-run.py \
+  --csv <csv-path> \
+  --org <org-name> \
+  --output-dir <output-dir> \
+  --codecov-url https://codecov.example.com
+```
 
 Then show the user:
 - Total parent tasks, subtasks, and DevLake tasks that would be created
@@ -314,7 +326,15 @@ Usage: python scripts/dry-run.py \
   --output-dir <./jira-tasks-draft/> \
   [--types <comma-separated-task-types>] \
   [--repos <comma-separated-repo-names>] \
-  [--no-devlake]
+  [--no-devlake] \
+  [--codecov-url <https://app.codecov.io>]
+
+Notes:
+  - If the CSV has a URL column, repo links use those URLs directly
+    (instead of constructing https://github.com/{org}/{repo})
+  - Provider prefix (/gh/ vs /gl/) is auto-detected from repo URLs
+  - --codecov-url sets a custom Codecov base URL (adds --url flag
+    to CLI upload commands in generated tasks)
 
 Output: directory structure with task.md + subtask-*.md per repo,
         _devlake-*.md at root, + summary to stdout
