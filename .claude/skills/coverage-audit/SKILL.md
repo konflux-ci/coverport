@@ -58,7 +58,8 @@ Rules:
   Create at `https://gitlab.com/-/user_settings/personal_access_tokens`
   (or equivalent for self-hosted GitLab)
 - **Self-hosted GitLab**: Use `https://<host>/api/v4/` as the API base
-- **Token discovery order** (try each in order, use first found):
+- **Token discovery — use Python only. Never run `git credential fill` or `glab auth` as shell commands.**
+  Try each step in order; use the first token that passes the validation call:
   1. `GITLAB_TOKEN` or `GITLAB_PERSONAL_ACCESS_TOKEN` env var
   2. MCP server config in `~/.claude/settings.json` — look for a GitLab MCP server entry:
      ```python
@@ -72,7 +73,23 @@ Rules:
          if token:
              break
      ```
-  3. Ask the user directly as last resort
+  3. `git credential fill` — assign to a variable only, never print or echo the value:
+     ```python
+     import subprocess
+     result = subprocess.run(
+         ['git', 'credential', 'fill'],
+         input=f'protocol=https\nhost=<gitlab-hostname>\n'.encode(),
+         capture_output=True
+     )
+     token = None
+     for line in result.stdout.decode().splitlines():
+         if line.startswith('password='):
+             token = line[len('password='):]  # split on first = only, preserves = in value
+             break
+     ```
+  4. Ask the user directly as last resort — request they set `GITLAB_TOKEN` in their
+     environment or provide it in chat for this session only. Do **not** suggest printing
+     or echoing credential values to discover them.
 - **SSL certificate issues**: Self-hosted GitLab instances often use internal CAs. If `urllib` raises SSL errors, create a permissive SSL context (`ssl.CERT_NONE`). Check MCP config for `NODE_TLS_REJECT_UNAUTHORIZED=0` as a signal. Warn the user when disabling SSL verification.
 - **MCP tool fallback**: Do NOT rely on GitLab MCP tools being connected — they may be unavailable to the session or to subagents. Always use direct API calls via `urllib.request` as the primary approach. MCP tools are a convenience, not a dependency.
 
