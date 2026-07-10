@@ -51,8 +51,8 @@ Before starting, make sure you have:
 |---|---|
 | Public GitHub (github.com) | https://app.codecov.io |
 | Public GitLab (gitlab.com) | https://app.codecov.io |
-| Private GitHub (github.com) | https://codecov-codecov.apps.rosa.konflux-qe.zmr9.p3.openshiftapps.com |
-| Internal GitLab (gitlab.cee.redhat.com) | https://codecov-codecov.apps.rosa.kflux-c-stg-i01.qfla.p3.openshiftapps.com |
+| Private GitHub (github.com) | https://codecov-codecov-public-production.apps.rosa.appsrep11ue1.tgem.p3.openshiftapps.com |
+| Internal GitLab (gitlab.cee.redhat.com) | https://codecov-codecov-production.apps.rosa.appsrep09ue1.03r5.p3.openshiftapps.com |
 
 ---
 
@@ -234,7 +234,7 @@ AI: I see this is a C project using autotools (configure.ac found).
 You: I want coverage for my private repo on GitHub.
 
 AI: Since this is a private GitHub repo, I'll use the self-hosted
-    Codecov instance at codecov-codecov.apps.rosa.konflux-qe...
+    Codecov instance at codecov-codecov-public-production.apps.rosa.appsrep11ue1...
     You'll need a CODECOV_TOKEN secret (OIDC is not available for
     self-hosted instances).
     ...

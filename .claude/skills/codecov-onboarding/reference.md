@@ -187,7 +187,7 @@ For internal GitLab, use the Python-based codecov-cli installed via pip:
 
 ```yaml
 variables:
-  CODECOV_URL: "https://codecov-codecov.apps.rosa.kflux-c-stg-i01.qfla.p3.openshiftapps.com"
+  CODECOV_URL: "https://codecov-codecov-production.apps.rosa.appsrep09ue1.03r5.p3.openshiftapps.com"
 
 stages:
   - test

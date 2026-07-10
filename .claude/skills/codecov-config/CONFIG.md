@@ -10,8 +10,8 @@ configuration that other skills read instead of hardcoding URLs.
 |---|---|---|
 | Public GitHub (github.com) | https://app.codecov.io | OIDC (GitHub Actions) or token (other CI) |
 | Public GitLab (gitlab.com) | https://app.codecov.io | Token |
-| Private GitHub (github.com, private repos) | https://codecov-codecov.apps.rosa.konflux-qe.zmr9.p3.openshiftapps.com | Token |
-| Internal GitLab (gitlab.cee.redhat.com) | https://codecov-codecov.apps.rosa.kflux-c-stg-i01.qfla.p3.openshiftapps.com | Token |
+| Private GitHub (github.com, private repos) | https://codecov-codecov-public-production.apps.rosa.appsrep11ue1.tgem.p3.openshiftapps.com | Token |
+| Internal GitLab (gitlab.cee.redhat.com) | https://codecov-codecov-production.apps.rosa.appsrep09ue1.03r5.p3.openshiftapps.com | Token |
 
 ## Authentication: OIDC vs Token
 

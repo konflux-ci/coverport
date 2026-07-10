@@ -60,8 +60,8 @@ instance routing table.
 **Instance routing summary:**
 - Public GitHub repos → https://app.codecov.io (OIDC auth)
 - Public GitLab.com repos → https://app.codecov.io (token auth)
-- Private GitHub repos → https://codecov-codecov.apps.rosa.konflux-qe.zmr9.p3.openshiftapps.com (token auth)
-- Internal GitLab (gitlab.cee.redhat.com) → https://codecov-codecov.apps.rosa.kflux-c-stg-i01.qfla.p3.openshiftapps.com (token auth)
+- Private GitHub repos → https://codecov-codecov-public-production.apps.rosa.appsrep11ue1.tgem.p3.openshiftapps.com (token auth)
+- Internal GitLab (gitlab.cee.redhat.com) → https://codecov-codecov-production.apps.rosa.appsrep09ue1.03r5.p3.openshiftapps.com (token auth)
 
 Ask the user these questions and wait for responses:
 
@@ -539,7 +539,7 @@ uploads to the self-hosted Codecov instance using the Python codecov-cli.
 ```yaml
 variables:
   # Self-hosted Codecov instance for internal GitLab
-  CODECOV_URL: "https://codecov-codecov.apps.rosa.kflux-c-stg-i01.qfla.p3.openshiftapps.com"
+  CODECOV_URL: "https://codecov-codecov-production.apps.rosa.appsrep09ue1.03r5.p3.openshiftapps.com"
 
 stages:
   - test
