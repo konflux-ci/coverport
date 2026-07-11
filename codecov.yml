@@ -30,8 +30,15 @@ ignore:
   - "**/*.md"
 
 flags:
-  unit-tests:
+  cli-tests:
+    paths:
+      - cli/
     carryforward: true
+  instrumentation-tests:
+    paths:
+      - instrumentation/go/
+    carryforward: true
+
 
 comment:
   layout: "reach,diff,flags,files"
