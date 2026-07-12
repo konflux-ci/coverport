@@ -205,7 +205,7 @@ are repository secrets; do not hardcode the URL.
 ```yaml
     - name: Upload coverage to Codecov
       if: false  # DISABLED — remove this line when Codecov instance is ready
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@v6
       with:
         url: ${{ secrets.CODECOV_URL }}
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -452,7 +452,7 @@ The upload step is **disabled** (`if: false`) — zero CI impact until the enabl
 Activates the upload job added in the prepare MR. Coverage uploads begin on the
 next pipeline run after merge.
 
-**Removed:** `when: never` disable guard  
+**Removed:** `when: never` disable guard
 **Prerequisite:** before merging, verify:
 - `CODECOV_TOKEN` is set at **project level** (repo-specific upload token)
 - `CODECOV_URL` is set at **group level** (instance URL — shared across repos)
@@ -465,7 +465,7 @@ next pipeline run after merge.
 Activates the upload step added in the prepare PR. Coverage uploads begin on the
 next workflow run after merge.
 
-**Removed:** `if: false` disable guard  
+**Removed:** `if: false` disable guard
 **Prerequisite:** `CODECOV_TOKEN` (repository level) and `CODECOV_URL` (org or repository level)
 must be set as repository secrets before merging.
 ```

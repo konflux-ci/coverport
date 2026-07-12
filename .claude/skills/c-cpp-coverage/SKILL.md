@@ -231,7 +231,7 @@ For autotools projects, you can classify tests by file type:
 Read the Codecov instance configuration from
 `codecov-config/CONFIG.md` to determine the correct instance URL.
 
-**In GitHub Actions**, prefer the `codecov/codecov-action@v5` with
+**In GitHub Actions**, prefer the `codecov/codecov-action@v6` with
 `use_oidc: true` (see Step 9 template). OIDC eliminates the need for
 a token secret.
 
@@ -399,7 +399,7 @@ coverage:
           --ignore-errors format,negative
 
     - name: Upload to Codecov
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@v6
       with:
         use_oidc: true  # Preferred for public repos with app.codecov.io
         flags: unit-tests

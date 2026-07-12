@@ -421,7 +421,7 @@ In `.github/workflows/pr.yaml` (or similar), update the codecov upload step:
 For public repos using app.codecov.io, use OIDC (no token needed):
 ```yaml
 - name: Upload coverage to Codecov
-  uses: codecov/codecov-action@v5
+  uses: codecov/codecov-action@v6
   with:
     use_oidc: true
     flags: unit-tests
@@ -432,7 +432,7 @@ The job must have `permissions: id-token: write` for OIDC to work.
 For private repos using a self-hosted Codecov instance, use token auth:
 ```yaml
 - name: Upload coverage to Codecov
-  uses: codecov/codecov-action@v5
+  uses: codecov/codecov-action@v6
   with:
     url: <CODECOV_INSTANCE_URL>
     token: ${{ secrets.CODECOV_TOKEN }}
@@ -490,7 +490,7 @@ kubeconfig access to the cluster.
 
 - name: Upload e2e coverage to Codecov
   if: always()
-  uses: codecov/codecov-action@v5
+  uses: codecov/codecov-action@v6
   with:
     use_oidc: true  # or token for private repos
     flags: e2e-tests
@@ -1038,7 +1038,7 @@ permissions:
             --cov-branch
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           file: ./coverage.xml
@@ -1225,7 +1225,7 @@ build-image:
 
 - name: Upload e2e coverage to Codecov
   if: always()
-  uses: codecov/codecov-action@v5
+  uses: codecov/codecov-action@v6
   with:
     use_oidc: true
     flags: e2e-tests

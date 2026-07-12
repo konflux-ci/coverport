@@ -15,7 +15,7 @@ configuration that other skills read instead of hardcoding URLs.
 
 ## Authentication: OIDC vs Token
 
-**OIDC is only available via `codecov/codecov-action@v5` in GitHub
+**OIDC is available via `codecov/codecov-action@v6` in GitHub
 Actions** with `use_oidc: true`. It is the preferred method for public
 GitHub repos using app.codecov.io — no token secret needed.
 
@@ -101,7 +101,7 @@ coverage data to the self-hosted instance instead of app.codecov.io.
 
 ```yaml
 - name: Upload coverage to Codecov
-  uses: codecov/codecov-action@v5
+  uses: codecov/codecov-action@v6
   with:
     use_oidc: true
     flags: unit-tests
@@ -116,7 +116,7 @@ The job must have `permissions: id-token: write`. Do NOT combine
 
 ```yaml
 - name: Upload coverage to Codecov
-  uses: codecov/codecov-action@v5
+  uses: codecov/codecov-action@v6
   with:
     url: <CODECOV_INSTANCE_URL>
     token: ${{ secrets.CODECOV_TOKEN }}

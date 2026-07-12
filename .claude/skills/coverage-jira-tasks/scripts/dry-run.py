@@ -237,7 +237,7 @@ def generate_steps(row, task_type):
    ```
 2. Add Codecov upload step using OIDC (recommended for GitHub Actions — no token secret needed):
    ```yaml
-   - uses: codecov/codecov-action@v5
+   - uses: codecov/codecov-action@v6
      with:
        use_oidc: true
        flags: unit-tests
@@ -256,7 +256,7 @@ def generate_steps(row, task_type):
    ```
 2. Add Codecov upload step using OIDC (recommended for GitHub Actions — no token secret needed):
    ```yaml
-   - uses: codecov/codecov-action@v5
+   - uses: codecov/codecov-action@v6
      with:
        use_oidc: true
        flags: unit-tests
@@ -273,7 +273,7 @@ def generate_steps(row, task_type):
    ```
 2. Add Codecov upload step using OIDC (recommended for GitHub Actions — no token secret needed):
    ```yaml
-   - uses: codecov/codecov-action@v5
+   - uses: codecov/codecov-action@v6
      with:
        use_oidc: true
        flags: unit-tests
@@ -287,7 +287,7 @@ def generate_steps(row, task_type):
             return f"""1. Add coverage generation to test step (language-specific)
 2. Add Codecov upload step using OIDC (recommended for GitHub Actions — no token secret needed):
    ```yaml
-   - uses: codecov/codecov-action@v5
+   - uses: codecov/codecov-action@v6
      with:
        use_oidc: true
        flags: unit-tests
