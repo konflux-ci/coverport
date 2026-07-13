@@ -35,7 +35,8 @@ cli/
 instrumentation/
 ├── go/               coverage_server.go — stdlib HTTP server, zero deps
 ├── python/           coverage_server.py — coverage.py wrapper + Gunicorn
-└── nodejs/           coverage_server.js — V8 inspector + v8-to-istanbul
+├── nodejs/           coverage_server.js — V8 inspector + v8-to-istanbul
+└── rust/             coverage-server crate — axum HTTP server, LLVM profraw via FFI
 ```
 
 ## Build / Test / Run
@@ -67,7 +68,8 @@ cd cli && make docker-build
 - **Separate Go modules**: `cli/` and `instrumentation/go/` are independent modules to allow
   instrumentation to stay on older Go versions (1.21+) while CLI tracks latest.
 - **Zero-dep instrumentation**: Instrumentation servers must remain copy-paste embeddable into
-  any project; no external dependencies allowed.
+  any project; no external dependencies allowed. Exception: Rust requires axum/tokio since
+  the stdlib has no HTTP server.
 - **Port 53700**: Chosen as a high, unlikely-to-conflict port; hardcoded across all languages.
 - **OCI artifacts for coverage**: Coverage data is pushed to container registries (not stored in
   git or ephemeral CI storage) so it persists and is addressable.
@@ -81,8 +83,8 @@ cd cli && make docker-build
   `instrumentation/go/` have `.golangci.yml` configs.
 - `QUICKSTART.md` references `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` which don't exist
   in the repo — these are aspirational docs.
-- Python and Node.js instrumentation have NO tests and NO dependency manifests in-repo;
-  they're designed to be copied into consumer projects.
+- Python, Node.js, and Rust instrumentation have NO tests in-repo;
+  they're designed to be copied/imported into consumer projects.
 - Tekton PipelineRuns reference specific Konflux catalog tasks that may change versions
   upstream without notice.
-- No root `.gitignore` — only `cli/.gitignore` exists.
+- Root `.gitignore` covers Go, Rust, Python, Node, and IDE artifacts.

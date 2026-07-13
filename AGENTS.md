@@ -15,7 +15,7 @@ cd instrumentation/go && go test ./... -v -cover
 ## Code Layout
 
 - `cli/` — Go CLI (cobra): `cmd/` commands, `internal/` business logic, `pkg/client/` HTTP/K8s client
-- `instrumentation/` — Coverage HTTP servers: `go/`, `python/`, `nodejs/`
+- `instrumentation/` — Coverage HTTP servers: `go/`, `python/`, `nodejs/`, `rust/`
 - `.claude/skills/` — Agent skills for coverage onboarding workflows
 
 ## Conventions
