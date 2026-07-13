@@ -1,4 +1,4 @@
-.PHONY: build install clean test lint docker-build
+.PHONY: build install clean test test-ci lint docker-build
 
 # Binary name
 BINARY_NAME=coverport
@@ -38,7 +38,11 @@ clean:
 
 test:
 	@echo "Running tests..."
-	go test -v ./...
+	go test -v -count=1 -race ./...
+
+test-ci:
+	@echo "Running CI-equivalent tests..."
+	go test -v -count=1 -race -coverprofile=coverage.out -covermode=atomic ./...
 
 lint:
 	@echo "Running linters..."
