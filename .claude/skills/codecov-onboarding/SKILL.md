@@ -328,7 +328,7 @@ jobs:
 
       # Add after your test step
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           flags: unit-tests
@@ -346,7 +346,7 @@ jobs:
       # ... checkout, setup, test steps ...
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           url: [CODECOV_INSTANCE_URL]  # Self-hosted instance URL
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -854,7 +854,7 @@ Common issues and solutions:
 - Check that OIDC is enabled in Codecov UI → Your Repo → Settings → General → "GitHub OIDC"
 - OIDC is NOT available for pull requests from forks — this is a GitHub security restriction. Fork PR coverage will be skipped, which is acceptable
 - If running on `pull_request_target`, ensure the workflow is properly configured
-- Verify you are using `codecov/codecov-action@v5` (OIDC support requires v5)
+- Verify you are using `codecov/codecov-action@v6` or later (OIDC support requires v5+)
 
 ### Coverage Report Not Found
 
