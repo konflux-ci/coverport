@@ -1,4 +1,4 @@
-.PHONY: build install clean test lint docker-build
+.PHONY: build install clean test lint check-go-version docker-build
 
 # Binary name
 BINARY_NAME=coverport
@@ -43,6 +43,10 @@ test:
 lint:
 	@echo "Running linters..."
 	golangci-lint run ./...
+
+check-go-version:
+	@echo "Checking Go version consistency..."
+	../hack/check-go-version.sh
 
 # Docker targets
 docker-build:
