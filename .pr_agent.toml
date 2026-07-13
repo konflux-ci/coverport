@@ -11,5 +11,15 @@ push_commands = [
 [review_agent]
 comments_location_policy = "both"
 inline_comments_severity_threshold = 3
-issues_user_guidelines = ""
+issues_user_guidelines = """
+- Instrumentation servers (instrumentation/) must have zero external dependencies — stdlib or single-lib only, so they stay copy-paste embeddable.
+- Port 53700 is the standard coverage port, hardcoded across all languages; changes require justification.
+- cli/ and instrumentation/go/ are separate Go modules with separate go.mod and .golangci.yml files; do not add a go.work file.
+- The Go version must stay consistent across cli/go.mod, cli/Dockerfile and .github/workflows/test.yml (see hack/check-go-version.sh).
+- Changes to .tekton/ YAML must follow Konflux Pipeline-as-Code conventions.
+- Changes to .golangci.yml should be validated by running golangci-lint locally first.
+- Watch for type/constant duplication across packages (e.g. CoverageFormat in both pkg/client and internal/processor).
+- codecov.yml target/flag changes should include rationale in the PR description.
+- Server-provided data written to disk (filenames, paths) must be sanitized against path traversal.
+"""
 compliance_user_guidelines = ""
