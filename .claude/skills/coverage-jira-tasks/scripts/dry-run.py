@@ -15,6 +15,7 @@ import csv
 import os
 import re
 import sys
+from urllib.parse import urlparse
 
 
 def has_ci(row):
@@ -160,9 +161,9 @@ TASK_TYPE_SUMMARIES = {
 def generate_steps(row, task_type):
     lang = row.get("Language", "").strip()
     ci = row.get("CI System", "").strip()
-    repo = row.get("Repository", "").strip()
-    org = row.get("_org", "")
-    codecov_url = f"https://app.codecov.io/gh/{org}/{repo}"
+    codecov_url = _codecov_url(row)
+    codecov_base = row.get("_codecov_base_url", "https://app.codecov.io")
+    is_custom_codecov = codecov_base != "https://app.codecov.io"
 
     is_gha = "GitHub Actions" in ci
 
@@ -296,24 +297,72 @@ def generate_steps(row, task_type):
 4. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
     elif "GitLab CI" in ci:
+        url_flag = f" \\\n     --url {codecov_base}" if is_custom_codecov else ""
         return f"""1. Add `CODECOV_TOKEN` CI variable in GitLab
 2. Add coverage generation to test job
 3. Add upload step using Codecov CLI:
    ```
    curl -Os https://cli.codecov.io/latest/linux/codecov
    chmod +x codecov
-   ./codecov upload-process --token $CODECOV_TOKEN --flag unit-tests --file <coverage-file>
+   ./codecov upload-process --token $CODECOV_TOKEN{url_flag} --flag unit-tests --file <coverage-file>
    ```
 4. Ensure pipeline runs on push to `main`
 5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
     else:
+        url_note = f"\n   Use `--url {codecov_base}` flag for custom Codecov instance." if is_custom_codecov else ""
         return f"""1. Add `CODECOV_TOKEN` to CI secrets
 2. Add coverage generation to test step
-3. Upload to Codecov with `--flag unit-tests`
+3. Upload to Codecov with `--flag unit-tests`{url_note}
 4. Ensure tests run on push to `main`
 5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
+
+
+def _repo_url(row, org):
+    """Get repo URL from CSV URL column, falling back to constructed GitHub URL.
+
+    When URL column is empty, defaults to GitHub. GitLab audits should always
+    populate the URL column in the CSV to get correct links.
+    """
+    csv_url = row.get("URL", "").strip()
+    if csv_url:
+        return csv_url
+    repo = row.get("Repository", "").strip()
+    provider = _codecov_provider(row)
+    if provider == "gl":
+        print(f"WARNING: No URL for {repo} — falling back to GitHub URL. "
+              "GitLab repos should have URL column populated in the CSV.")
+    return f"https://github.com/{org}/{repo}"
+
+
+def _codecov_provider(row):
+    """Detect Codecov provider prefix from repo URL: /gl/ for GitLab, /gh/ for GitHub."""
+    url = row.get("URL", "").strip().lower()
+    if "gitlab" in url:
+        return "gl"
+    return "gh"
+
+
+def _codecov_repo_path(row):
+    """Extract owner/repo path for Codecov URLs from CSV URL or fallback to org/repo."""
+    csv_url = row.get("URL", "").strip()
+    if csv_url:
+        path = urlparse(csv_url).path.strip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        return path
+    org = row.get("_org", "")
+    repo = row.get("Repository", "").strip()
+    return f"{org}/{repo}"
+
+
+def _codecov_url(row):
+    """Build full Codecov URL for a repo using base URL, provider, and repo path."""
+    base = row.get("_codecov_base_url", "https://app.codecov.io")
+    provider = _codecov_provider(row)
+    repo_path = _codecov_repo_path(row)
+    return f"{base}/{provider}/{repo_path}"
 
 
 def _common_task_fields(row, org):
@@ -347,6 +396,8 @@ def _common_task_fields(row, org):
         "has_codecov": has_codecov, "ci": ci, "codecov_status": codecov_status,
         "desc_line": desc_line, "stars_line": stars_line, "contributors_line": contributors_line,
         "test_details": row.get("Test Details", "").strip(),
+        "repo_url": _repo_url(row, org),
+        "codecov_url": _codecov_url(row),
     }
 
 
@@ -357,9 +408,7 @@ def generate_flat_task(row, task_type, priority, org):
     type_label = TASK_TYPE_JIRA_LABELS.get(task_type, task_type)
     labels = f"codecov-onboarding, {type_label}"
 
-    row["_org"] = org
     steps = generate_steps(row, task_type)
-    codecov_url = f"https://app.codecov.io/gh/{org}/{f['repo']}"
     is_gha = "GitHub Actions" in f["ci"]
 
     test_details_line = ""
@@ -387,7 +436,7 @@ labels: "{labels}"
 
 ### Objective
 
-{summary_label} for [{f['repo']}](https://github.com/{org}/{f['repo']}){f['stars_line']}.
+{summary_label} for [{f['repo']}]({f['repo_url']}){f['stars_line']}.
 {f['desc_line']}
 ### Current State
 
@@ -443,7 +492,7 @@ labels: "codecov-onboarding"
 
 ### Objective
 
-Onboard [{f['repo']}](https://github.com/{org}/{f['repo']}){f['stars_line']} to code coverage tracking.
+Onboard [{f['repo']}]({f['repo_url']}){f['stars_line']} to code coverage tracking.
 {f['desc_line']}
 ### Current State
 
@@ -483,10 +532,9 @@ def generate_subtask_file(row, task_type, priority, org):
     type_label = TASK_TYPE_JIRA_LABELS.get(task_type, task_type)
     labels = f"codecov-onboarding, {type_label}"
 
-    row["_org"] = org
     steps = generate_steps(row, task_type)
 
-    codecov_url = f"https://app.codecov.io/gh/{org}/{repo}"
+    repo_url = _repo_url(row, org)
     test_details_line = ""
     if test_details:
         test_details_line = f"| Test details | {test_details} |\n"
@@ -512,7 +560,7 @@ labels: "{labels}"
 
 ### Objective
 
-{summary_label} for [{repo}](https://github.com/{org}/{repo}).
+{summary_label} for [{repo}]({repo_url}).
 
 ### Current State
 
@@ -700,6 +748,9 @@ def main():
                         help="Comma-separated repo names to include (e.g., 'quay-operator,mirror-registry'). Default: all")
     parser.add_argument("--no-devlake", action="store_true",
                         help="Skip generating DevLake follow-up tasks")
+    parser.add_argument("--codecov-url", default="https://app.codecov.io",
+                        help="Base URL for Codecov instance (default: https://app.codecov.io). "
+                             "Provider prefix (/gh/ or /gl/) is auto-detected from repo URLs.")
     args = parser.parse_args()
 
     allowed_types = None
@@ -771,6 +822,7 @@ def main():
         os.makedirs(repo_dir, exist_ok=True)
 
         row["_org"] = args.org
+        row["_codecov_base_url"] = args.codecov_url.rstrip("/")
 
         if len(filtered_subtasks) == 1:
             # Single test type → flat task (no subtasks)
@@ -780,6 +832,7 @@ def main():
             with open(task_path, "w") as f:
                 f.write(flat_content)
 
+            parent_priority = priority
             stats["parent_tasks"] += 1
             stats["tasks_by_type"][task_type] = stats["tasks_by_type"].get(task_type, 0) + 1
             all_repos.append((repo, priority, filtered_subtasks))
