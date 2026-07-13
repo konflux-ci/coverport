@@ -77,6 +77,21 @@ jobs:
           files: instrumentation/go/coverage.out
           fail_ci_if_error: false
 
+  test-skill-scripts:
+    name: Skill Script Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run coverage-jira-tasks script tests
+        working-directory: .claude/skills/coverage-jira-tasks/scripts
+        run: python -m unittest discover -p 'test_*.py' -v
+
   check-agents-md:
     name: Check AGENTS.md line limit
     runs-on: ubuntu-latest
