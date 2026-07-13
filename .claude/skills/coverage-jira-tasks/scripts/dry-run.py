@@ -15,6 +15,7 @@ import csv
 import os
 import re
 import sys
+from urllib.parse import urlparse
 
 
 def has_ci(row):
@@ -309,20 +310,29 @@ def generate_steps(row, task_type):
 5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
     else:
+        url_note = f"\n   Use `--url {codecov_base}` flag for custom Codecov instance." if is_custom_codecov else ""
         return f"""1. Add `CODECOV_TOKEN` to CI secrets
 2. Add coverage generation to test step
-3. Upload to Codecov with `--flag unit-tests`
+3. Upload to Codecov with `--flag unit-tests`{url_note}
 4. Ensure tests run on push to `main`
 5. Enable flag analytics in [{codecov_url}]({codecov_url}) → Flags tab
 """
 
 
 def _repo_url(row, org):
-    """Get repo URL from CSV URL column, falling back to constructed GitHub URL."""
+    """Get repo URL from CSV URL column, falling back to constructed GitHub URL.
+
+    When URL column is empty, defaults to GitHub. GitLab audits should always
+    populate the URL column in the CSV to get correct links.
+    """
     csv_url = row.get("URL", "").strip()
     if csv_url:
         return csv_url
     repo = row.get("Repository", "").strip()
+    provider = _codecov_provider(row)
+    if provider == "gl":
+        print(f"WARNING: No URL for {repo} — falling back to GitHub URL. "
+              "GitLab repos should have URL column populated in the CSV.")
     return f"https://github.com/{org}/{repo}"
 
 
@@ -334,12 +344,25 @@ def _codecov_provider(row):
     return "gh"
 
 
+def _codecov_repo_path(row):
+    """Extract owner/repo path for Codecov URLs from CSV URL or fallback to org/repo."""
+    csv_url = row.get("URL", "").strip()
+    if csv_url:
+        path = urlparse(csv_url).path.strip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        return path
+    org = row.get("_org", "")
+    repo = row.get("Repository", "").strip()
+    return f"{org}/{repo}"
+
+
 def _codecov_url(row):
     """Build full Codecov URL for a repo using base URL, provider, and repo path."""
     base = row.get("_codecov_base_url", "https://app.codecov.io")
     provider = _codecov_provider(row)
-    repo = row.get("Repository", "").strip()
-    return f"{base}/{provider}/{repo}"
+    repo_path = _codecov_repo_path(row)
+    return f"{base}/{provider}/{repo_path}"
 
 
 def _common_task_fields(row, org):
