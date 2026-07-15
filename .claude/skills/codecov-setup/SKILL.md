@@ -192,9 +192,9 @@ Read the upload job template from `codecov-onboarding` Option C. Apply fields pe
 
 #### GitHub Actions Modifier
 
-Read the upload step template from `codecov-onboarding` Option A. Add to the **existing
-primary test workflow file** — do not create a new file. `CODECOV_URL` and `CODECOV_TOKEN`
-are repository secrets; do not hardcode the URL.
+Read the upload step template from `codecov-onboarding` Option A. Add to the **workflow
+file that contains the test command** (identified in step 5) — do not create a new file.
+`CODECOV_URL` and `CODECOV_TOKEN` are repository secrets; do not hardcode the URL.
 
 | Field | Prepare | Enable |
 |---|---|---|
@@ -255,7 +255,7 @@ No push in either case. In bulk mode, dispatch one subagent per repo using Bulk 
 3. **Create branch** (name from table above).
 4. **Identify CI file** from the audit CSV (`CI System` column):
    - `gitlab-ci` → `.gitlab-ci.yml`
-   - `github-actions` → `.github/workflows/` (find the primary test workflow)
+   - `github-actions` → `.github/workflows/` (identify in step 5 — the file containing the test command)
 
    **If the expected CI file is absent:** skip this repo — do not commit or open an MR.
    Add to **Needs Manual Attention**:
