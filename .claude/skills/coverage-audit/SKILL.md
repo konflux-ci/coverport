@@ -40,58 +40,52 @@ Rules:
 
 - Token with `repo` scope (private repos) or `public_repo` (public only)
 - For org-level metadata: `read:org` scope
-- Help the user set `GITHUB_TOKEN` if needed:
-  ```
-  export GITHUB_TOKEN=$(gh auth token)
-  ```
-  Or if they don't have `gh` CLI, walk them through creating a token at
-  https://github.com/settings/tokens
-- **GitHub Enterprise**: If user provides a GHE URL, use `https://<host>/api/v3/` as the API base instead of `https://api.github.com/`
+- **GitHub Enterprise**: Use `https://<host>/api/v3/` as the API base instead of `https://api.github.com/`
+- Token discovery: see [Token Discovery](#token-discovery) below.
+  Use env var `GITHUB_TOKEN` / `GITHUB_PERSONAL_ACCESS_TOKEN`, MCP key `GITHUB_TOKEN`,
+  and host `github.com` (or GHE hostname).
 
 ### GitLab
 
-- Token with `read_api` scope
-- Help the user set `GITLAB_TOKEN`:
-  ```
-  export GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxxx
-  ```
-  Create at `https://gitlab.com/-/user_settings/personal_access_tokens`
+- Token with `read_api` scope. Create at `https://gitlab.com/-/user_settings/personal_access_tokens`
   (or equivalent for self-hosted GitLab)
 - **Self-hosted GitLab**: Use `https://<host>/api/v4/` as the API base
-- **Token discovery — use Python only. Never run `git credential fill` or `glab auth` as shell commands.**
-  Try each step in order; use the first token that passes the validation call:
-  1. `GITLAB_TOKEN` or `GITLAB_PERSONAL_ACCESS_TOKEN` env var
-  2. MCP server config in `~/.claude/settings.json` — look for a GitLab MCP server entry:
-     ```python
-     import json, os
-     with open(os.path.expanduser("~/.claude/settings.json")) as f:
-         cfg = json.load(f)
-     for name, server in cfg.get("mcpServers", {}).items():
-         env = server.get("env", {})
-         token = env.get("GITLAB_PERSONAL_ACCESS_TOKEN") or env.get("GITLAB_TOKEN")
-         gitlab_url = env.get("GITLAB_URL")  # e.g., "https://gitlab.cee.redhat.com"
-         if token:
-             break
-     ```
-  3. `git credential fill` — assign to a variable only, never print or echo the value:
-     ```python
-     import subprocess
-     result = subprocess.run(
-         ['git', 'credential', 'fill'],
-         input=f'protocol=https\nhost=<gitlab-hostname>\n'.encode(),
-         capture_output=True
-     )
-     token = None
-     for line in result.stdout.decode().splitlines():
-         if line.startswith('password='):
-             token = line[len('password='):]  # split on first = only, preserves = in value
-             break
-     ```
-  4. Ask the user directly as last resort — request they set `GITLAB_TOKEN` in their
-     environment or provide it in chat for this session only. Do **not** suggest printing
-     or echoing credential values to discover them.
 - **SSL certificate issues**: Self-hosted GitLab instances often use internal CAs. If `urllib` raises SSL errors, create a permissive SSL context (`ssl.CERT_NONE`). Check MCP config for `NODE_TLS_REJECT_UNAUTHORIZED=0` as a signal. Warn the user when disabling SSL verification.
-- **MCP tool fallback**: Do NOT rely on GitLab MCP tools being connected — they may be unavailable to the session or to subagents. Always use direct API calls via `urllib.request` as the primary approach. MCP tools are a convenience, not a dependency.
+- **MCP tool fallback**: Do NOT rely on GitLab MCP tools being connected — always use direct API calls via `urllib.request`. MCP tools are a convenience, not a dependency.
+- Token discovery: see [Token Discovery](#token-discovery) below.
+  Use env var `GITLAB_TOKEN` / `GITLAB_PERSONAL_ACCESS_TOKEN`, MCP key `GITLAB_TOKEN`,
+  and host `<gitlab-hostname>`. Also capture `GITLAB_URL` from MCP env if present.
+
+### Token Discovery
+
+**Use Python only. Never run `git credential fill`, `glab auth`, or similar as shell commands.**
+
+Try each step in order; use the first token found:
+
+1. Check env var — use the platform-specific name from the platform section above
+   (e.g. `GITHUB_TOKEN` for GitHub, `GITLAB_TOKEN` for GitLab).
+2. Check `~/.claude/settings.json` for an MCP server entry — look for the same env var
+   names as step 1 inside each server's `env` block. Also capture `GITLAB_URL` if present
+   (GitLab only). Use Python; do not read the file as a shell command.
+3. `git credential fill` — use the platform hostname from the platform section above
+   (`github.com` for GitHub, the GitLab instance hostname for GitLab). Assign to a
+   variable only, never print or echo the value:
+   ```python
+   import subprocess
+   result = subprocess.run(
+       ['git', 'credential', 'fill'],
+       input=f'protocol=https\nhost=<platform-hostname>\n'.encode(),
+       capture_output=True
+   )
+   token = None
+   for line in result.stdout.decode().splitlines():
+       if line.startswith('password='):
+           token = line[len('password='):]  # split on first = only, preserves = in value
+           break
+   ```
+4. Ask the user directly as last resort — request they set the token env var in their
+   environment or provide it in chat for this session only. Do **not** suggest printing
+   or echoing credential values.
 
 ## Instructions
 
