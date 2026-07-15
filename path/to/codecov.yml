@@ -1,0 +1,9 @@
+flags:
+  cli-tests:
+    paths:
+      - cli/
+    carryforward: true
+  instrumentation-tests:
+    paths:
+      - instrumentation/go/
+    carryforward: true
