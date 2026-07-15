@@ -14,7 +14,7 @@
 - **🔧 Flexible Discovery**: Support for label selectors, image refs, and explicit pod names
 - **🔐 Git Metadata Extraction**: Extract repository information from container images using cosign
 - **📤 Codecov Integration**: Direct upload to Codecov with proper commit mapping
-- **🌍 Multi-Language Support**: Go and Python supported, Node.js (NYC) coming soon
+- **🌍 Multi-Language Support**: Go, Python, Rust, and Node.js (NYC) supported
 
 ## Recent Improvements
 

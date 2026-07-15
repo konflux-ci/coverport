@@ -1,6 +1,6 @@
 ---
 name: coverport-integration
-description: Integrate coverport into repositories to enable e2e test coverage collection and upload to Codecov. Supports Go, Python, and Node.js applications with Tekton/Konflux pipelines and GitHub Actions (using coverport CLI container via podman). Use this skill when users ask to integrate coverport, add e2e coverage tracking, or set up coverage instrumentation.
+description: Integrate coverport into repositories to enable e2e test coverage collection and upload to Codecov. Supports Go, Python, Node.js, and Rust applications with Tekton/Konflux pipelines and GitHub Actions (using coverport CLI container via podman). Use this skill when users ask to integrate coverport, add e2e coverage tracking, or set up coverage instrumentation.
 ---
 
 # Coverport Integration Skill
@@ -10,28 +10,33 @@ This skill automates the integration of coverport into repositories for e2e test
 ## What is Coverport?
 
 Coverport is a tool that enables e2e test coverage collection by:
-1. Building instrumented container images (Go with `-cover`, Python with coverage wrapper, Node.js with V8 inspector)
+1. Building instrumented container images (Go with `-cover`, Python with coverage wrapper, Node.js with V8 inspector, Rust with `-C instrument-coverage`)
 2. Collecting coverage data from running containers during e2e tests — via HTTP endpoint or from test runner output
 3. Processing and uploading the coverage data to Codecov with appropriate flags
 
 The coverport CLI is available as a container image that includes all dependencies (oras, cosign, git, language-specific tools):
 ```
-quay.io/konflux-ci/konflux-devprod/coverport-cli
+quay.io/konflux-ci/konflux-devprod/coverport-cli:<tag>
 ```
+
+> **IMPORTANT — Pin the image tag**: Never use `:latest` or an untagged image in generated CI
+> workflows. Always resolve the current latest tag at onboarding time (see Step 0) and pin to it.
+> This prevents breaking the onboarded application's CI if coverport introduces breaking changes later.
 
 ## When to Use This Skill
 
 Use this skill when the user:
 - Asks to integrate coverport into their repository
 - Wants to add e2e test coverage tracking
-- Needs to set up coverage instrumentation for Go, Python, or Node.js projects
+- Needs to set up coverage instrumentation for Go, Python, Node.js, or Rust projects
 - Mentions integrating coverage collection for Tekton/Konflux pipelines
 - Wants to collect e2e coverage in GitHub Actions using the coverport CLI container
+- Mentions LLVM coverage, profraw, or `instrument-coverage` for Rust
 
 ## Prerequisites
 
 Before using this skill, verify the repository has:
-- Codebase with a Dockerfile (Go, Python, or Node.js)
+- Codebase with a Dockerfile (Go, Python, Node.js, or Rust)
 - One of the following CI/CD setups:
   - Tekton pipelines (typically in `.tekton/` directory) with an E2E test pipeline (typically in `integration-tests/pipelines/`)
   - GitHub Actions workflows (in `.github/workflows/`)
@@ -43,13 +48,30 @@ Before using this skill, verify the repository has:
 
 Before starting, run these checks to understand the repository structure:
 
-1. **Detect project language and entry point:**
+1. **Resolve the current coverport-cli image tag:**
+   ```bash
+   # Fetch the latest git commit SHA tag from Quay (no auth needed for public repos)
+   COVERPORT_TAG=$(curl -s "https://quay.io/api/v1/repository/konflux-ci/konflux-devprod%2Fcoverport-cli/tag/?onlyActiveTags=true&limit=50" \
+     | jq -r '
+       (.tags[] | select(.name == "latest") | .manifest_digest) as $digest |
+       .tags[] | select(.manifest_digest == $digest and (.name | test("^[0-9a-f]{40}$"))) | .name
+     ' | head -1)
+   echo "Pinning to: quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG}"
+   ```
+   Use this tag in all generated CI YAML instead of `:latest` or untagged references.
+   If the API is unreachable or `jq` is not available, fall back to using the `latest` tag with a comment noting it should be pinned.
+
+2. **Detect project language and entry point:**
    ```bash
    # Go projects
    find . -name "main.go" -not -path "*/vendor/*" -not -path "*/test/*"
    # Python projects
    find . -name "requirements.txt" -o -name "setup.py" -o -name "pyproject.toml" | head -5
    ls *.py Dockerfile Containerfile 2>/dev/null
+   # Rust projects
+   find . -name "Cargo.toml" -not -path "*/target/*" | head -10
+   grep -r "\[\[bin\]\]" Cargo.toml */Cargo.toml 2>/dev/null
+   ls src/main.rs 2>/dev/null
    ```
 
 2. **Check current Dockerfile build command:**
@@ -58,6 +80,8 @@ Before starting, run these checks to understand the repository structure:
    grep -A5 "go build" Dockerfile Containerfile 2>/dev/null
    # Python projects
    grep -A5 "pip install\|ENTRYPOINT\|CMD" Dockerfile Containerfile 2>/dev/null
+   # Rust projects
+   grep -A5 "cargo build" Dockerfile Containerfile 2>/dev/null
    ```
 
 3. **List Tekton pipelines:**
@@ -68,7 +92,7 @@ Before starting, run these checks to understand the repository structure:
 
 4. **Check for existing coverage setup:**
    ```bash
-   grep -r "ENABLE_COVERAGE\|instrumented\|coverport" . --exclude-dir=vendor --exclude-dir=.git
+   grep -r "ENABLE_COVERAGE\|instrumented\|coverport\|instrument-coverage\|coverage-server" . --exclude-dir=vendor --exclude-dir=target --exclude-dir=.git
    ```
 
 5. **Check if e2e test suite rebuilds the container image:**
@@ -140,7 +164,9 @@ Before making changes, ask the user:
 
 **Key rule: If Tekton e2e tests run pytest directly against source code** (clone repo → install deps → run pytest), container instrumentation is unnecessary. Use Pattern D (pytest-cov) instead — it's simpler and gives the same coverage data.
 
-### Step 3: Add Coverport as a Go Module Dependency
+### Step 3: Add Coverage Dependency
+
+#### Go
 
 Add coverport to your Go module dependencies:
 
@@ -155,7 +181,26 @@ This will:
 
 **Important**: Always run `go mod tidy` after `go get`. The `go get` command adds the dependency as `// indirect`, but since `coverage_init.go` imports it directly (even behind a build tag), `go mod tidy` correctly reclassifies it as a direct dependency. Many CI systems verify that `go mod tidy` produces no diff.
 
-### Step 4: Create coverage_init.go File
+#### Rust
+
+Add the `coverage-server` crate as an optional dependency behind a Cargo feature flag:
+
+```toml
+[features]
+coverage = ["dep:coverage-server"]
+
+[dependencies]
+coverage-server = { git = "https://github.com/konflux-ci/coverport.git", subdirectory = "instrumentation/rust", optional = true }
+```
+
+**Important**:
+- The `optional = true` ensures coverage-server is only compiled when `--features coverage` is passed
+- No additional dependencies (like tokio) are needed — the coverage server brings its own runtime
+- The crate is pulled from the coverport monorepo using Cargo's `subdirectory` parameter
+
+### Step 4: Add Coverage Initialization Code
+
+#### Go
 
 Create a new file `coverage_init.go` in the root of your Go module (same directory as `main.go` or where the `package main` is):
 
@@ -177,20 +222,37 @@ import _ "github.com/konflux-ci/coverport/instrumentation/go" // starts coverage
 - This file should be at the root of your Go module (where `main.go` is, or where the main package is)
 - Always run `go mod tidy` after this step. The coverport instrumentation dependency was previously fetched as indirect, and the new blank import makes it a direct dependency.
 
-### Step 5: Modify the Dockerfile
+#### Rust
 
-Add coverage instrumentation support:
+Add two lines to the application's `main()` function:
+
+```rust
+fn main() {
+    #[cfg(feature = "coverage")]
+    let _coverage = coverage_server::start_coverage_server_standalone(53700);
+
+    // ... rest of the application, completely unchanged ...
+}
+```
+
+**Important**:
+- The `#[cfg(feature = "coverage")]` attribute ensures this code is only compiled when the feature is enabled
+- `start_coverage_server_standalone(53700)` spawns the server on its own background thread with its own tokio runtime — no interference with the application's runtime
+- The port (53700) can be overridden at runtime via the `COVERAGE_PORT` environment variable
+- Works with any Rust application — any async runtime (tokio, async-std, actix-rt) or synchronous apps
+
+### Step 5: Modify the Dockerfile
 
 **Add build argument** (near the top after FROM):
 ```dockerfile
-# Build arguments
 ARG ENABLE_COVERAGE=false
 ```
+
+#### Go
 
 **Modify the build command** to conditionally build with coverage tags:
 
 ```dockerfile
-# Build with or without coverage instrumentation
 RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
         echo "Building with coverage instrumentation..."; \
         CGO_ENABLED=0 go build -cover -covermode=atomic -tags=coverage -o <binary-name> .; \
@@ -207,6 +269,31 @@ RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
 - Only instrument binaries that run during e2e tests
 - Keep other binaries without instrumentation
 - No need to download external files - coverport is now a Go module dependency
+
+#### Rust
+
+**Modify the build command** to conditionally build with coverage:
+
+```dockerfile
+ARG ENABLE_COVERAGE
+
+RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
+        echo "Building with coverage instrumentation"; \
+        rustup component add llvm-tools-preview; \
+        RUSTFLAGS="-C instrument-coverage" LLVM_PROFILE_FILE=/dev/null \
+        cargo build --release --features coverage; \
+    else \
+        echo "Building without coverage (production)"; \
+        cargo build --release; \
+    fi
+```
+
+**Important — Rust-specific details**:
+- `RUSTFLAGS="-C instrument-coverage"` tells the compiler to insert LLVM profiling counters
+- `--features coverage` activates the `coverage-server` optional dependency
+- `LLVM_PROFILE_FILE=/dev/null` suppresses stray `.profraw` files generated during the build
+- Without `-C instrument-coverage`, the LLVM FFI symbols won't be present and the build will fail with linker errors if `--features coverage` is set
+- Without `--features coverage`, the coverage-server dependency is not included at all — clean production binary
 
 ### Step 5.5: Validate Dockerfile Changes Locally
 
@@ -360,6 +447,9 @@ For tests that deploy/run container images, find parameters that reference image
       value: e2e-tests
     - name: credentials-secret-name
       value: "coverport-secrets"  # Or user-specified name
+    # For Rust projects, add:
+    # - name: coverage-format
+    #   value: rust
   taskRef:
     resolver: git
     params:
@@ -370,6 +460,8 @@ For tests that deploy/run container images, find parameters that reference image
       - name: pathInRepo
         value: tasks/coverport-coverage/0.1/coverport-coverage.yaml
 ```
+
+**Rust-specific Tekton note**: For Rust projects, add the `coverage-format: rust` parameter to the coverage collection task. This tells coverport to process the collected profraw data using `llvm-profdata` and `llvm-cov` instead of the default Go profile format. The Tekton pipeline YAML is otherwise identical to Go — only this one parameter differs.
 
 ### Step 8: Update Tekton PR Pipeline (Pull Request Pipeline)
 
@@ -449,9 +541,9 @@ use the coverport CLI container via podman to collect and upload e2e
 coverage. The container image includes all dependencies (oras, cosign,
 git, Go, etc.), so nothing needs to be installed separately.
 
-**Container image:**
+**Container image (use the tag resolved in Step 0):**
 ```
-quay.io/konflux-ci/konflux-devprod/coverport-cli
+quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG}
 ```
 
 There are three patterns depending on where the instrumented app runs
@@ -481,7 +573,7 @@ kubeconfig access to the cluster.
       -v /tmp/kubeconfig:/kubeconfig:ro \
       -v $PWD/coverage-output:/workspace/coverage-output \
       -e KUBECONFIG=/kubeconfig \
-      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
         --namespace=${{ env.TEST_NAMESPACE }} \
         --label-selector=${{ env.LABEL_SELECTOR }} \
@@ -510,7 +602,7 @@ kubeconfig access to the cluster.
       -v /tmp/kubeconfig:/kubeconfig:ro \
       -v $PWD/coverage-output:/workspace/coverage-output \
       -e KUBECONFIG=/kubeconfig \
-      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
         --images=${{ env.INSTRUMENTED_IMAGE }} \
         --namespace=${{ env.TEST_NAMESPACE }} \
@@ -522,7 +614,7 @@ kubeconfig access to the cluster.
     # Process and upload to Codecov
     podman run --rm \
       -e CODECOV_TOKEN=${{ secrets.CODECOV_TOKEN }} \
-      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       process \
         --artifact-ref=${{ env.COVERAGE_ARTIFACT_REF }} \
         --image=${{ env.INSTRUMENTED_IMAGE }} \
@@ -567,7 +659,7 @@ against it in the same job. The app exposes coverage via HTTP on port
     podman run --rm \
       --network host \
       -v $PWD/coverage-output:/workspace/coverage-output \
-      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
         --url http://localhost:9095 \
         --test-name="e2e-tests" \
@@ -577,7 +669,7 @@ against it in the same job. The app exposes coverage via HTTP on port
     podman run --rm \
       -v $PWD/coverage-output:/workspace/coverage-output:ro \
       -e CODECOV_TOKEN=${{ secrets.CODECOV_TOKEN }} \
-      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       process \
         --coverage-dir=/workspace/coverage-output \
         --repo-url=${{ github.server_url }}/${{ github.repository }} \
@@ -623,7 +715,7 @@ coverage output directory into the coverport container for processing.
       -v $PWD/e2e-tests/.nyc_output:/workspace/coverage:ro \
       -v $PWD/coverport-output:/workspace/output:rw \
       -e CODECOV_TOKEN="${{ secrets.CODECOV_TOKEN }}" \
-      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       process \
         --coverage-dir=/workspace/coverage \
         --format=nyc \
@@ -638,6 +730,86 @@ coverage output directory into the coverport container for processing.
 - Coverage files are from the test runner output directory, not HTTP
 - No `collect` step is needed — go straight to `process`
 
+##### Pattern D (Rust): App Running Locally via Podman/Docker
+
+Rust coverage requires an additional binary extraction step because
+`llvm-cov` needs the original instrumented binary to produce LCOV output
+from the collected `.profraw` data.
+
+```yaml
+- name: Set up Rust toolchain
+  uses: dtolnay/rust-toolchain@stable
+  with:
+    components: llvm-tools-preview
+
+- name: Add llvm-tools to PATH
+  run: |
+    TOOLCHAIN_LIB=$(rustc --print sysroot)/lib
+    echo "$(find $TOOLCHAIN_LIB -name 'llvm-profdata' -exec dirname {} \;)" >> $GITHUB_PATH
+
+- name: Build instrumented image
+  run: |
+    podman build --build-arg ENABLE_COVERAGE=true -t myapp:instrumented .
+
+- name: Extract binary from image
+  run: |
+    CONTAINER_ID=$(podman create myapp:instrumented)
+    podman cp $CONTAINER_ID:/app/<binary-name> ./coverage-binary
+    podman rm $CONTAINER_ID
+    chmod +x ./coverage-binary
+
+- name: Start instrumented application
+  run: |
+    podman run -d --name app-under-test \
+      -p 8080:8080 -p 53700:53700 \
+      myapp:instrumented
+
+- name: Run e2e tests
+  run: |
+    <your-e2e-test-command>
+
+- name: Collect and upload Rust e2e coverage
+  if: always()
+  run: |
+    mkdir -p coverage-output && chmod 777 coverage-output
+
+    # Step 1: Collect profraw from the coverage HTTP endpoint
+    podman run --rm \
+      --network host \
+      -v $PWD/coverage-output:/workspace/coverage-output \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
+      collect \
+        --url http://localhost:53700 \
+        --test-name="e2e-tests" \
+        --output=/workspace/coverage-output
+
+    # Step 2: Process profraw → LCOV and upload to Codecov
+    podman run --rm \
+      -v $PWD/coverage-output:/workspace/coverage-output \
+      -v $PWD/coverage-binary:/workspace/binary:ro \
+      -e CODECOV_TOKEN=${{ secrets.CODECOV_TOKEN }} \
+      -e COVERAGE_BINARY=/workspace/binary \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
+      process \
+        --coverage-dir=/workspace/coverage-output \
+        --format=rust \
+        --repo-url=${{ github.server_url }}/${{ github.repository }} \
+        --commit-sha=${{ github.sha }} \
+        --codecov-flags=e2e-tests
+
+- name: Stop application
+  if: always()
+  run: podman stop app-under-test || true
+```
+
+**Key points for Rust coverage in GitHub Actions:**
+- Port 53700 (not 9095) — Rust uses the coverport standard port
+- `--format=rust` tells coverport to use `llvm-profdata` + `llvm-cov` for processing
+- `COVERAGE_BINARY` environment variable (or `--binary` flag) is required — points to the extracted instrumented binary
+- The binary must match the exact same build that produced the container image
+- `llvm-tools-preview` must be installed so `llvm-profdata` and `llvm-cov` are available
+- Binary extraction via `podman cp` avoids needing to share volumes or rebuild locally
+
 ##### Self-Hosted Codecov with Coverport
 
 When uploading to a self-hosted Codecov instance (see
@@ -647,7 +819,7 @@ command:
 ```yaml
     podman run --rm \
       -e CODECOV_TOKEN=${{ secrets.CODECOV_TOKEN }} \
-      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       process \
         --codecov-url=<CODECOV_INSTANCE_URL> \
         --coverage-dir=/workspace/coverage-output \
@@ -920,6 +1092,64 @@ Common issues and solutions:
   - Verify `coverage_init.go` has `//go:build coverage` at the top
   - Ensure production builds do NOT include `-tags=coverage`
   - The coverage code should only be included when `ENABLE_COVERAGE=true`
+
+### Rust-Specific Troubleshooting
+
+**Rust: Linker error `undefined symbol: __llvm_profile_get_size_for_buffer`:**
+- **Cause**: Built with `--features coverage` (which includes FFI calls to LLVM profile functions) but without `-C instrument-coverage` (which links the LLVM profile runtime)
+- **Solution**: Always pair `--features coverage` with `RUSTFLAGS="-C instrument-coverage"`. For production builds, omit both.
+
+**Rust: `llvm-profdata` merge fails with "raw profile version mismatch":**
+- **Cause**: The `llvm-profdata` binary is from a different LLVM version than the one used by `rustc` to compile the binary
+- **Solution**: Always use LLVM tools from `rustup component add llvm-tools-preview`. Add to PATH in CI:
+  ```bash
+  LLVM_TOOLS_DIR="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/host: //p')/bin"
+  echo "$LLVM_TOOLS_DIR" >> $GITHUB_PATH
+  ```
+  Do NOT use system-installed `llvm-profdata` or `llvm-cov`.
+
+**Rust: `llvm-cov` error "failed to load coverage" or "Is a directory":**
+- **Cause**: `COVERAGE_BINARY` path points to a directory or the binary was not extracted from the Docker image
+- **Solution**: Extract the instrumented binary from the image:
+  ```bash
+  docker create --name extract myapp:instrumented
+  docker cp extract:/app/<binary-name> ./instrumented-binary
+  docker rm extract
+  export COVERAGE_BINARY=./instrumented-binary
+  ```
+
+**Rust: "Profile buffer size is 0" from coverage server:**
+- **Cause**: The binary was not compiled with `-C instrument-coverage`
+- **Solution**: Verify the binary was built with both flags: `RUSTFLAGS="-C instrument-coverage" cargo build --release --features coverage`
+
+**Rust: Stray `.profraw` files during build:**
+- **Cause**: `-C instrument-coverage` makes compiler probes emit small profraw files
+- **Solution**: Set `LLVM_PROFILE_FILE=/dev/null` during the build
+
+**Rust: Port 53700 connection refused:**
+- Verify the binary was built with `--features coverage`
+- Check `COVERAGE_PORT` env var in the deployment
+- Ensure the Dockerfile has `EXPOSE 53700` and the container maps the port
+- Check container logs for "Coverage server starting on 0.0.0.0:53700"
+
+**Rust: Docker image Rust version vs CI runner LLVM version mismatch:**
+- **Cause**: The Docker image uses a different Rust/LLVM version than CI. The profraw format is version-specific.
+- **Solution**: Pin the Rust version in Dockerfile (e.g., `FROM rust:1.96.1-bookworm`) and ensure CI uses the same toolchain. The LLVM tools from `llvm-tools-preview` always match the compiler's LLVM version.
+
+### Key Differences: Go vs Rust Coverage
+
+| Aspect | Go | Rust |
+|---|---|---|
+| Instrumentation flag | `-cover -covermode=atomic` | `RUSTFLAGS="-C instrument-coverage"` |
+| Build tags / features | `//go:build coverage` | `#[cfg(feature = "coverage")]` + `--features coverage` |
+| Dependency mechanism | `go get` + blank import in `coverage_init.go` | Cargo optional dep + 2 lines in `main.rs` |
+| Coverage data format | Go coverprofile (text) | LLVM profraw (binary) |
+| Processing tools | `go tool covdata` | `llvm-profdata` + `llvm-cov` (from `llvm-tools-preview`) |
+| Default port | 9095 | 53700 |
+| coverport format flag | (default) | `--format=rust` |
+| Binary extraction | Not needed | Required — `llvm-cov` needs the exact binary |
+| LLVM tools in CI | Not needed | Must install `llvm-tools-preview` and add to PATH |
+| Runtime requirement | None (uses Go's `net/http`) | None (coverage-server brings its own tokio runtime) |
 
 ## Pattern D: Python pytest-cov (No Container Instrumentation)
 
@@ -1216,7 +1446,7 @@ build-image:
       -v /tmp/kubeconfig:/kubeconfig:ro \
       -v $PWD/coverage-output:/workspace/coverage-output \
       -e KUBECONFIG=/kubeconfig \
-      quay.io/konflux-ci/konflux-devprod/coverport-cli \
+      quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
         --namespace=<app-namespace> \
         --label-selector="app=<app-label>" \

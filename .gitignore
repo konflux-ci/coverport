@@ -42,6 +42,10 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
+# Rust
+target/
+Cargo.lock
+
 # Node (if instrumentation tests are added)
 node_modules/
 package-lock.json

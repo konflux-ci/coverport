@@ -5,7 +5,7 @@ Multi-language coverage collection system for containerized applications running
 ## 📦 What's Inside
 
 - **`cli/`** - **coverport CLI** - Kubernetes-native tool for collecting coverage from running pods via port-forwarding. Supports Konflux snapshot integration, multi-component collection, and OCI artifact publishing.
-- **`instrumentation/`** - Coverage HTTP servers (Go, Python, Node.js) that embed into your applications to expose coverage data via HTTP endpoint (default port 53700).
+- **`instrumentation/`** - Coverage HTTP servers (Go, Python, Node.js, Rust) that embed into your applications to expose coverage data via HTTP endpoint (default port 53700).
 
 ## Quick Start
 
