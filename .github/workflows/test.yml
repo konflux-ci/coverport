@@ -43,7 +43,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           use_oidc: true
-          flags: unit-tests
+          flags: cli-tests
           files: cli/coverage.out
           fail_ci_if_error: false
 
@@ -73,7 +73,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           use_oidc: true
-          flags: unit-tests
+          flags: instrumentation-tests
           files: instrumentation/go/coverage.out
           fail_ci_if_error: false
 
