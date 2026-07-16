@@ -140,7 +140,7 @@ Replace the existing `python -m unittest <args>` line with:
 ```
 
 > **⚠ Tox repos — STOP AND READ:** If the CI job runs `tox -e <env>` rather than pytest
-> directly, apply changes to `tox.ini` instead of `.gitlab-ci.yml`.
+> directly, apply changes to `tox.ini` instead of the CI config file.
 >
 > **Allowed — add ONLY if XML report format is absent:**
 > - `--cov-report=xml:{toxinidir}/coverage.xml` appended to the existing pytest `addopts`
@@ -192,9 +192,9 @@ Read the upload job template from `codecov-onboarding` Option C. Apply fields pe
 
 #### GitHub Actions Modifier
 
-Read the upload step template from `codecov-onboarding` Option A. Add to the **existing
-primary test workflow file** — do not create a new file. `CODECOV_URL` and `CODECOV_TOKEN`
-are repository secrets; do not hardcode the URL.
+Read the upload step template from `codecov-onboarding` Option A. Add to the **workflow
+file that contains the test command** (identified in step 5) — do not create a new file.
+`CODECOV_URL` and `CODECOV_TOKEN` are repository secrets; do not hardcode the URL.
 
 | Field | Prepare | Enable |
 |---|---|---|
@@ -205,6 +205,18 @@ are repository secrets; do not hardcode the URL.
 ```yaml
     - name: Upload coverage to Codecov
       if: false  # DISABLED — remove this line when Codecov instance is ready
+      uses: codecov/codecov-action@v6
+      with:
+        url: ${{ secrets.CODECOV_URL }}
+        token: ${{ secrets.CODECOV_TOKEN }}
+        flags: unit-tests
+        files: <coverage-file-path>
+        fail_ci_if_error: false
+```
+
+**Step template (enable — `if: false` removed):**
+```yaml
+    - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v6
       with:
         url: ${{ secrets.CODECOV_URL }}
@@ -236,16 +248,18 @@ No push in either case. In bulk mode, dispatch one subagent per repo using Bulk 
 1. **Idempotency check:** Check `.codecov-setup-progress.json` for this repo under the
    current mode. If status is `committed_locally` or `opened`, skip.
 2. **Clone the repo fresh:**
+   - **GitLab:** `git clone <repo-https-url> /tmp/codecov-setup/<repo-name>`
+   - **GitHub:** prefer `gh repo clone <org/repo> /tmp/codecov-setup/<repo-name>` — uses
+     `gh`'s stored auth and avoids interactive prompts for private repos. Fall back to
+     `git clone` only if `gh` is not available and non-interactive credentials (SSH or
+     token-based HTTPS) are already configured.
    ```bash
-   git clone <repo-url> /tmp/codecov-setup/<repo-name>
    cd /tmp/codecov-setup/<repo-name>
    ```
-   **GitHub repos:** use `gh repo clone <repo-url> /tmp/codecov-setup/<repo-name>` instead
-   — avoids interactive auth prompts on private repos.
 3. **Create branch** (name from table above).
 4. **Identify CI file** from the audit CSV (`CI System` column):
    - `gitlab-ci` → `.gitlab-ci.yml`
-   - `github-actions` → `.github/workflows/` (find the primary test workflow)
+   - `github-actions` → `.github/workflows/` (identify in step 5 — the file containing the test command)
 
    **If the expected CI file is absent:** skip this repo — do not commit or open an MR.
    Add to **Needs Manual Attention**:
@@ -274,6 +288,8 @@ No push in either case. In bulk mode, dispatch one subagent per repo using Bulk 
 9. **Check for rules mismatch [GitLab CI only]:** Compare the test job's `rules:` block
    with the upload template's `rules:` block. The upload job must only fire on pipelines
    where the test job also ran — otherwise it will fail with no coverage file.
+   (GitHub Actions: not applicable — the upload step is in the same job as the test step
+   and always runs together; no separate job-level rules to reconcile.)
    - If the upload job's rules are **broader** than the test job's (e.g. upload fires on
      `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` but the test job only fires on
      `merge_request_event`): narrow the upload job's rules to match the test job's rules
@@ -286,7 +302,8 @@ No push in either case. In bulk mode, dispatch one subagent per repo using Bulk 
 10. **Apply the CI modifier** for the current mode (see CI Job Modifiers above).
 11. **Write the change** to the CI config:
     - GitLab: append the modified job block to `.gitlab-ci.yml`
-    - GitHub: add the modified upload step to `.github/workflows/<test-workflow>.yml` — do not create a new workflow file
+    - GitHub: add the modified upload step to the workflow file that contains the test
+      command from step 5 — do not create a new workflow file
 12. **Handle `.codecov.yml`** using the template from `add-codecov-yml/skill.md`:
     - Absent → generate from template, write to repo root
     - Present and compliant → skip
@@ -312,10 +329,9 @@ No push in either case. In bulk mode, dispatch one subagent per repo using Bulk 
 For each repo with `committed_locally` status, pushes and opens MR/PR.
 In bulk mode, dispatch one subagent per repo using Bulk Dispatch.
 
-1. **Resolve `GITLAB_TOKEN`** using the discovery logic from `coverage-audit/SKILL.md`
-   (env var → `~/.claude/settings.json` → `git credential fill` via Python → ask user).
-   **Never embed a token value in instructions. Never run `git credential fill` or
-   `glab auth` as a shell/bash command.**
+1. **Resolve credentials** using the Token Discovery logic from `coverage-audit/SKILL.md`
+   for the platform of the repo being pushed. Never run `git credential fill` or
+   `glab auth` as shell commands — use the Python subprocess approach.
 2. **Push and open MR/PR** following `add-codecov-yml/skill.md § 4`:
    ```bash
    git -C <local_path> push -u origin <branch>
@@ -377,8 +393,8 @@ wave pattern but sources repos from the progress file instead of a CSV.
       - `full` → run **Full Mode Workflow** for this repo
       - `apply` → run **Apply Workflow** for this repo
 
-      Each subagent discovers `GITLAB_TOKEN` independently using the discovery logic in
-      `coverage-audit/SKILL.md` — do not pass the token value in instructions.
+      GitLab repos: each subagent discovers `GITLAB_TOKEN` independently per
+      `coverage-audit/SKILL.md`. Do not pass token values in instructions.
    b. Wait for all subagents in this wave to complete.
    c. **Parent appends results to `.codecov-setup-progress.json`** (sole writer — subagents
       return results as output, they do not write the file themselves):
