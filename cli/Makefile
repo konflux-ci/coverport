@@ -74,6 +74,7 @@ help:
 	@echo "  install       - Install the binary to GOPATH/bin"
 	@echo "  clean         - Remove built artifacts"
 	@echo "  test          - Run tests"
+	@echo "  test-ci       - Run CI-equivalent tests with coverage"
 	@echo "  lint          - Run linters"
 	@echo "  docker-build  - Build Docker image"
 	@echo "  docker-push   - Build and push Docker image"
