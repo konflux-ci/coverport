@@ -1,17 +1,7 @@
 version: 2
 updates:
-  - package-ecosystem: gomod
-    directory: /cli
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-
-  - package-ecosystem: gomod
-    directory: /instrumentation/go
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3
-
+  # Go module updates are handled by MintMaker/Renovate (Konflux platform bot).
+  # Dependabot gomod entries were removed to eliminate duplicate PRs — see issue #108.
   - package-ecosystem: github-actions
     directory: /
     schedule:
