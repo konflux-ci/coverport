@@ -7,7 +7,7 @@ Collects code coverage from running containers via HTTP (port 53700) without vol
 
 ```bash
 cd cli && make build          # build coverport binary
-cd cli && make test           # go test -race (matches CI)
+cd cli && make test           # go test -race -count=1 (CI without coverage profile)
 cd instrumentation/go && go test ./... -v -cover
 ```
 
