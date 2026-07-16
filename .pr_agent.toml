@@ -18,7 +18,7 @@ issues_user_guidelines = """
 - The Go version must stay consistent across cli/go.mod, the Go download in cli/Dockerfile's runtime stage, and .github/workflows/test.yml (the builder stage uses a UBI go-toolset image tag with no explicit Go version).
 - Changes to .tekton/ YAML must follow Konflux Pipeline-as-Code conventions.
 - Changes to .golangci.yml should be validated by running golangci-lint locally first.
-- Watch for type/constant duplication across packages (e.g. CoverageFormat in both pkg/client and internal/processor).
+- Watch for type/constant duplication across packages (e.g. CoverageFormat in both pkg/client and internal/processor — the definitions have already diverged: the processor version includes FormatAuto while the client version does not).
 - codecov.yml target/flag changes should include rationale in the PR description.
 - Server-provided data written to disk (filenames, paths) must be sanitized against path traversal.
 """
