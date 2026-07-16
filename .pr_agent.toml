@@ -15,7 +15,7 @@ issues_user_guidelines = """
 - Instrumentation servers (instrumentation/) must have zero external dependencies — stdlib or single-lib only, so they stay copy-paste embeddable.
 - Port 53700 is the standard coverage port, hardcoded across all languages; changes require justification.
 - cli/ and instrumentation/go/ are separate Go modules with separate go.mod and .golangci.yml files; do not add a go.work file.
-- The Go version must stay consistent across cli/go.mod, cli/Dockerfile and .github/workflows/test.yml.
+- The Go version must stay consistent across cli/go.mod, the Go download in cli/Dockerfile's runtime stage, and .github/workflows/test.yml (the builder stage uses a UBI go-toolset image tag with no explicit Go version).
 - Changes to .tekton/ YAML must follow Konflux Pipeline-as-Code conventions.
 - Changes to .golangci.yml should be validated by running golangci-lint locally first.
 - Watch for type/constant duplication across packages (e.g. CoverageFormat in both pkg/client and internal/processor).
