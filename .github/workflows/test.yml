@@ -77,6 +77,15 @@ jobs:
           files: instrumentation/go/coverage.out
           fail_ci_if_error: false
 
+  check-go-version:
+    name: Check Go version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check Go version consistency
+        run: ./hack/check-go-version.sh
+
   check-agents-md:
     name: Check AGENTS.md line limit
     runs-on: ubuntu-latest
