@@ -9,6 +9,9 @@ Collects code coverage from running containers via HTTP (port 53700) without vol
 cd cli && make build          # build coverport binary
 cd cli && make test           # go test -v ./...
 cd instrumentation/go && go test ./... -v -cover
+
+# Kind e2e (see CLAUDE.md / .github/workflows/e2e.yml)
+cd test/e2e && COVERPORT_BIN=../../cli/coverport go test -v -timeout 25m ./...
 ```
 
 
@@ -16,6 +19,7 @@ cd instrumentation/go && go test ./... -v -cover
 
 - `cli/` — Go CLI (cobra): `cmd/` commands, `internal/` business logic, `pkg/client/` HTTP/K8s client
 - `instrumentation/` — Coverage HTTP servers: `go/`, `python/`, `nodejs/`, `rust/`
+- `test/e2e/` — Kind-based CLI e2e (collect/discover/process); fixtures in `test/fixtures/`
 - `.claude/skills/` — Agent skills for coverage onboarding workflows
 
 ## Conventions
@@ -25,6 +29,7 @@ cd instrumentation/go && go test ./... -v -cover
 - CLI subcommands: `collect`, `discover`, `process` — all accept `--verbose` flag
 - Container images built via Konflux Tekton pipelines on push to `main`
 - Coverage uploaded to Codecov with `unit-tests` flag via OIDC
+- E2E language patterns: Go/Rust = Kind HTTP collect; Node = NYC filesystem process; Python = pytest-cov (no coverport CLI)
 
 ## Don't
 
@@ -40,6 +45,7 @@ cd instrumentation/go && go test ./... -v -cover
 - Add Tekton task: follow `cli/examples/tekton-task-coverport.yaml`
 - Add agent skill: follow `.claude/skills/codecov-onboarding/SKILL.md` (YAML frontmatter + instructions)
 - Add unit test: follow `cli/internal/discovery/discovery_test.go` (table-driven tests)
+- Add e2e coverage: follow `test/e2e/e2e_test.go` + `test/fixtures/README.md`
 
 ## Review
 
