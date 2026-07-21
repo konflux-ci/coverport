@@ -6,6 +6,7 @@
 
 # Binaries
 coverport
+coverport-cover
 *.exe
 *.dll
 *.so
