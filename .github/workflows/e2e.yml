@@ -1,0 +1,101 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-tests:
+    name: E2E Tests (Kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+
+      - name: Set up Rust (must match fixture image version for profraw compatibility)
+        uses: dtolnay/rust-toolchain@1.80
+        with:
+          components: llvm-tools-preview
+
+      - name: Install Python pytest-cov (Pattern D fixture)
+        run: pip install -r test/fixtures/python/requirements.txt
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: coverport-e2e
+
+      - name: Build coverport with coverage instrumentation
+        working-directory: cli
+        run: go build -cover -o ./coverport-cover .
+
+      - name: Pull fixture images and load into Kind
+        run: |
+          for lang in go nodejs rust; do
+            docker pull quay.io/konflux-ci/konflux-devprod/coverport-testapp-${lang}:latest
+            kind load docker-image quay.io/konflux-ci/konflux-devprod/coverport-testapp-${lang}:latest \
+              --name coverport-e2e
+          done
+
+      - name: Run e2e tests
+        working-directory: test/e2e
+        run: |
+          mkdir -p /tmp/coverport-coverage
+          GOCOVERDIR=/tmp/coverport-coverage \
+          COVERPORT_BIN=${{ github.workspace }}/cli/coverport-cover \
+            go test -v -timeout 25m ./...
+
+      - name: Generate coverage report
+        if: always()
+        run: |
+          if [ -d /tmp/coverport-coverage ] && [ "$(ls -A /tmp/coverport-coverage)" ]; then
+            go tool covdata textfmt \
+              -i=/tmp/coverport-coverage \
+              -o=e2e-coverage.out
+            echo "Coverage report generated"
+            go tool cover -func=e2e-coverage.out | tail -1
+          else
+            echo "No coverage data found"
+          fi
+
+      - name: Upload to Codecov
+        if: always()
+        uses: codecov/codecov-action@v6
+        with:
+          files: e2e-coverage.out
+          flags: e2e-tests
+          use_oidc: true
+          fail_ci_if_error: false
+
+      - name: Collect pod logs on failure
+        if: failure()
+        run: |
+          echo "=== Kind cluster info ==="
+          kubectl cluster-info || true
+          echo ""
+          echo "=== All pods ==="
+          kubectl get pods --all-namespaces || true
+          echo ""
+          for ns in $(kubectl get namespaces -o name 2>/dev/null | grep 'namespace/e2e-' | sed 's|namespace/||'); do
+            echo "=== Pods in ${ns} ==="
+            kubectl get pods -n ${ns} 2>/dev/null || true
+            for pod in $(kubectl get pods -n ${ns} -o name 2>/dev/null); do
+              echo "--- Logs for ${ns}/${pod} ---"
+              kubectl logs -n ${ns} ${pod} --tail=50 2>/dev/null || true
+              echo "--- Events for ${ns}/${pod} ---"
+              kubectl describe -n ${ns} ${pod} 2>/dev/null | grep -A 20 "Events:" || true
+            done
+          done

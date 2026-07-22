@@ -1,0 +1,9 @@
+[package]
+name = "coverport-testapp-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+coverage-server = { path = "../../../instrumentation/rust" }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
