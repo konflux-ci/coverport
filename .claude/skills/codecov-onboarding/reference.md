@@ -4,8 +4,9 @@ Detailed reference material for the codecov-onboarding skill. Read this
 file when you need language-specific coverage commands, full CI
 configuration examples, or troubleshooting guidance.
 
-For Codecov instance routing (which instance to use for which repo),
-see `codecov-config/CONFIG.md`.
+For Codecov instance routing (which instance to use for which repo)
+and self-hosted instance access requirements (GitHub App installation,
+GitLab bot invitation), see `codecov-config/CONFIG.md`.
 
 For C/C++ coverage generation details, see the `c-cpp-coverage` skill.
 

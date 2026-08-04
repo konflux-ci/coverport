@@ -40,6 +40,35 @@ Ask the user these questions in order:
    - Public → use **app.codecov.io**
    - Private → use **public self-hosted** instance
 
+## Self-hosted Instance Access Requirements
+
+Before a repository can use a self-hosted Codecov instance, these
+one-time setup steps must be completed.
+
+### Public instance (for private GitHub repositories)
+
+1. **Install the GitHub App** — an org administrator installs the
+   Codecov AppSRE GitHub App on the target repositories:
+   https://github.com/apps/codecov-appsre/installations/select_target
+2. **Organization membership** — ensure you are an active member of
+   the GitHub organization
+3. **Organization registration** — the GitHub org must be added to
+   the Codecov server's allowed-orgs list. Reach out to the
+   [Code Coverage Workgroup](https://redhat.enterprise.slack.com/archives/C09MYT9LQCB)
+   on Slack to request this
+
+### Internal instance (for internal GitLab repositories)
+
+1. **GitLab credentials** — a valid
+   [gitlab.cee.redhat.com](https://gitlab.cee.redhat.com/) account
+2. **Bot service account invitation** — invite the Codecov bot SA to
+   your project or top-level GitLab group with **Developer** role so
+   it can post coverage comments on MRs:
+   https://gitlab.cee.redhat.com/service_account_8c0a18b45adb83e6286cae169acfe826
+   Contact the
+   [Code Coverage Workgroup](https://redhat.enterprise.slack.com/archives/C09MYT9LQCB)
+   if you need help with the invitation
+
 ## Codecov CLI Installation Methods
 
 There are two ways to install the Codecov CLI:

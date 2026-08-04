@@ -63,6 +63,13 @@ instance routing table.
 - Private GitHub repos → https://codecov-codecov-public-production.apps.rosa.appsrep11ue1.tgem.p3.openshiftapps.com (token auth)
 - Internal GitLab (gitlab.cee.redhat.com) → https://codecov-codecov-production.apps.rosa.appsrep09ue1.03r5.p3.openshiftapps.com (token auth)
 
+**Self-hosted instance access:** Before proceeding with a self-hosted
+instance, verify the one-time access requirements are met — see
+`codecov-config/CONFIG.md § Self-hosted Instance Access Requirements`.
+For the public instance (private GitHub repos), the GitHub App must be
+installed and the org registered. For the internal instance (internal
+GitLab repos), the Codecov bot SA must be invited with Developer role.
+
 Ask the user these questions and wait for responses:
 
 ```
