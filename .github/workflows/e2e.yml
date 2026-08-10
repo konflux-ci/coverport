@@ -30,15 +30,15 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.24'
 
       - name: Set up Rust (must match fixture image version for profraw compatibility)
-        uses: dtolnay/rust-toolchain@1.80
+        uses: dtolnay/rust-toolchain@7564c77776ca76a297e7dc67dc4adb5cfceabfb6 # 1.80
         with:
           components: llvm-tools-preview
 
@@ -46,7 +46,7 @@ jobs:
         run: pip install -r test/fixtures/python/requirements.txt
 
       - name: Create Kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: coverport-e2e
 
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload to Codecov
         if: always()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           files: e2e-coverage.out
           flags: e2e-tests
