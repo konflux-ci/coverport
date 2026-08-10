@@ -766,7 +766,7 @@ coverage (common pattern: Go tests invoke shell scripts, kcov wraps those invoca
 
 kcov's default behavior scans the directory of the executed binary for "other scripts"
 and adds them to the coverage report — even files that were never executed. When kcov is
-built from source (e.g., `git clone kcov /tmp/kcov-src && cmake ...`), it remembers the
+built from source (e.g., `git clone https://github.com/SimonKagstrom/kcov.git /tmp/kcov-src && cmake ...`), it remembers the
 source path. On subsequent runs, kcov scans that path and picks up files like
 `/tmp/kcov-src/README.md`, which appear in the Cobertura XML as `kcov-src/README.md`.
 
