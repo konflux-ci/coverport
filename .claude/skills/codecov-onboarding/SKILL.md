@@ -756,6 +756,64 @@ If the user reports coverage discrepancies, help them identify files to ignore:
 Would you like me to create a codecov.yml file for your repository? (yes/no)
 ```
 
+## Shell Script Coverage with kcov
+
+When a repository uses [kcov](https://github.com/SimonKagstrom/kcov) for shell script
+coverage (common pattern: Go tests invoke shell scripts, kcov wraps those invocations),
+**always** add `--bash-dont-parse-binary-dir` to every kcov invocation.
+
+### Why This Is Required
+
+kcov's default behavior scans the directory of the executed binary for "other scripts"
+and adds them to the coverage report — even files that were never executed. When kcov is
+built from source (e.g., `git clone kcov /tmp/kcov-src && cmake ...`), it remembers the
+source path. On subsequent runs, kcov scans that path and picks up files like
+`/tmp/kcov-src/README.md`, which appear in the Cobertura XML as `kcov-src/README.md`.
+
+Codecov's PathFixer then strips the unknown `kcov-src/` prefix and maps the entry to
+the **repository's** `README.md` — creating a phantom 0% coverage entry. This causes
+patch coverage failures on PRs that touch `README.md` (or any file whose name collides
+with a file in kcov's source tree).
+
+### Fix: Always Use `--bash-dont-parse-binary-dir`
+
+**In Go test wrappers (kcovWrap pattern):**
+```go
+kcovArgs := []string{
+    "--bash-dont-parse-binary-dir",
+    "--include-path=" + filepath.Dir(absScript),
+    kcovDir,
+    absScript,
+}
+```
+
+**In direct CI invocations:**
+```bash
+kcov --bash-dont-parse-binary-dir --include-path=scripts/ kcov-output ./scripts/my-script.sh
+```
+
+**In shell_coverage.yaml workflows (if kcov wraps the test run directly):**
+```yaml
+- name: Run tests with kcov
+  run: |
+    kcov --bash-dont-parse-binary-dir --include-path=scripts/ \
+      kcov-output ./scripts/my-script.sh
+```
+
+### Symptoms of Missing This Flag
+
+- Codecov flags `README.md` or other non-code files with 0% patch coverage
+- `cobertura.xml` contains entries like `filename="kcov-src/README.md"` (68 lines, 0 hits)
+- Only repos using kcov are affected; Go/Python/JS/Rust coverage tools never exhibit this
+
+### Alternative (Less Preferred): Ignore in codecov.yml
+
+Adding `"README.md"` to `ignore:` in codecov.yml works around the symptom but doesn't
+prevent future collisions with other kcov source files (INSTALL.md, test scripts, etc.).
+Prefer fixing at the source with `--bash-dont-parse-binary-dir`.
+
+---
+
 ## Coverage Generation by Language
 
 Provide language-specific guidance based on detected language:
