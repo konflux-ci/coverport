@@ -30,6 +30,9 @@ ignore:
   - "**/*.yaml"
   - "**/*.toml"
   - "**/*.md"
+  - ".agents/**"
+  - ".cursor/**"
+  - "skills/**"
 
 flags:
   unit-tests:
