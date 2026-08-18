@@ -624,7 +624,7 @@ kubeconfig access to the cluster.
 **Key points for Kubernetes collection:**
 - `--network host` is required so coverport can reach the Kind/k8s API
 - The coverport CLI collects coverage via port-forward to the pod's
-  coverage HTTP endpoint (port 9095 by default)
+  coverage HTTP endpoint (port 53700 by default)
 - The `collect` command automatically generates a `coverage.out` text
   profile from the binary Go coverage data
 - You can upload directly using `codecov/codecov-action` with the
@@ -636,13 +636,13 @@ kubeconfig access to the cluster.
 Use when your GitHub Actions workflow starts the instrumented app
 locally (e.g., via `podman run` or `docker compose`) and runs e2e tests
 against it in the same job. The app exposes coverage via HTTP on port
-9095. Use coverport's `--url` flag instead of Kubernetes discovery.
+53700. Use coverport's `--url` flag instead of Kubernetes discovery.
 
 ```yaml
 - name: Start instrumented application
   run: |
     podman run -d --name app-under-test \
-      -p 8080:8080 -p 9095:9095 \
+      -p 8080:8080 -p 53700:53700 \
       ${{ env.INSTRUMENTED_IMAGE }}
 
 - name: Run e2e tests
@@ -661,7 +661,7 @@ against it in the same job. The app exposes coverage via HTTP on port
       -v $PWD/coverage-output:/workspace/coverage-output \
       quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
-        --url http://localhost:9095 \
+        --url http://localhost:53700 \
         --test-name="e2e-tests" \
         --output=/workspace/coverage-output
 
@@ -682,7 +682,7 @@ against it in the same job. The app exposes coverage via HTTP on port
 ```
 
 **Key points for `--url` collection:**
-- `--network host` is required so coverport can reach localhost:9095
+- `--network host` is required so coverport can reach localhost:53700
 - When using `--url` (no container image), you must pass `--repo-url`
   and `--commit-sha` to the `process` command explicitly
 - The coverport CLI uses these to clone the repo and remap coverage
@@ -803,7 +803,7 @@ from the collected `.profraw` data.
 ```
 
 **Key points for Rust coverage in GitHub Actions:**
-- Port 53700 (not 9095) — Rust uses the coverport standard port
+- Port 53700 — uses the coverport standard port
 - `--format=rust` tells coverport to use `llvm-profdata` + `llvm-cov` for processing
 - `COVERAGE_BINARY` environment variable (or `--binary` flag) is required — points to the extracted instrumented binary
 - The binary must match the exact same build that produced the container image
@@ -969,7 +969,7 @@ After integration is deployed to CI/CD, provide these verification steps to the 
    - Trigger the e2e workflow
    - Verify the coverport `collect` and `process` steps succeed in the logs
    - Check Codecov dashboard for coverage data with `e2e-tests` flag
-   - For `--url` collection: verify the app container was reachable on port 9095
+   - For `--url` collection: verify the app container was reachable on port 53700
 
 4. **Check unit test coverage:**
    - Create a PR
@@ -1034,7 +1034,7 @@ Common issues and solutions:
 - Verify the coverage collection task can access the cluster where instrumented app runs
 - Review coverage collection task logs for connection or permission errors
 
-**Coverage server not running (port 9095 connection refused) despite instrumented build:**
+**Coverage server not running (port 53700 connection refused) despite instrumented build:**
 - **Cause**: The e2e test suite rebuilds the container image without `ENABLE_COVERAGE=true`,
   overwriting the instrumented image with a production build
 - This is common in **kubebuilder/operator-sdk scaffolded projects** where the Ginkgo
@@ -1062,9 +1062,9 @@ Common issues and solutions:
 
 **GitHub Actions: coverport collect fails with connection refused:**
 - Ensure `--network host` is set on the `podman run` command so coverport can reach localhost
-- Verify the instrumented app is running and port 9095 is exposed
+- Verify the instrumented app is running and port 53700 is exposed
 - Check `podman logs app-under-test` for startup errors or coverage server messages
-- Try `curl http://localhost:9095/health` before running coverport to confirm the coverage endpoint is available
+- Try `curl http://localhost:53700/health` before running coverport to confirm the coverage endpoint is available
 
 **GitHub Actions: coverport process fails with "image is a URL, not a container image":**
 - When using `--url` collection (Pattern B), you must pass `--repo-url` and `--commit-sha` to the `process` command
@@ -1145,7 +1145,7 @@ Common issues and solutions:
 | Dependency mechanism | `go get` + blank import in `coverage_init.go` | Cargo optional dep + 2 lines in `main.rs` |
 | Coverage data format | Go coverprofile (text) | LLVM profraw (binary) |
 | Processing tools | `go tool covdata` | `llvm-profdata` + `llvm-cov` (from `llvm-tools-preview`) |
-| Default port | 9095 | 53700 |
+| Default port | 53700 | 53700 |
 | coverport format flag | (default) | `--format=rust` |
 | Binary extraction | Not needed | Required — `llvm-cov` needs the exact binary |
 | LLVM tools in CI | Not needed | Must install `llvm-tools-preview` and add to PATH |
