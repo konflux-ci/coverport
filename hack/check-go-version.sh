@@ -6,6 +6,11 @@
 # Renovate) the CI matrix and the Dockerfile must be bumped with it, or the
 # build breaks on merge. This script catches that drift.
 #
+# The Dockerfile is checked against the exact patch version while the workflows
+# are checked against major.minor only. That asymmetry is deliberate: the image
+# pins a single toolchain for reproducible builds, whereas setup-go resolves the
+# latest patch within a major.minor line on its own.
+#
 # Checks:
 #   1. cli/Dockerfile downloads the exact go.mod version (go<major.minor.patch>)
 #   2. .github/workflows/test.yml pins the go.mod major.minor for the CLI job

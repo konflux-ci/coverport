@@ -49,7 +49,7 @@ test/
 # Daily dev
 cd cli
 make build                    # produces ./coverport binary
-make test                     # go test -race ./... (matches CI)
+make test                     # go test -race -count=1 (CI without coverage profile)
 make test-ci                  # + coverage profile (exact CI command)
 make lint                     # golangci-lint (install separately)
 make dev-build                # build with -race
