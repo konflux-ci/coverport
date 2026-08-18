@@ -1,4 +1,4 @@
-.PHONY: build install clean test test-ci lint docker-build
+.PHONY: build install clean test test-ci lint check-go-version docker-build
 
 # Binary name
 BINARY_NAME=coverport
@@ -48,6 +48,10 @@ lint:
 	@echo "Running linters..."
 	golangci-lint run ./...
 
+check-go-version:
+	@echo "Checking Go version consistency..."
+	../hack/check-go-version.sh
+
 # Docker targets
 docker-build:
 	@echo "Building Docker image: $(DOCKER_IMAGE):$(DOCKER_TAG)"
@@ -76,6 +80,7 @@ help:
 	@echo "  test          - Run tests"
 	@echo "  test-ci       - Run CI-equivalent tests with coverage"
 	@echo "  lint          - Run linters"
+	@echo "  check-go-version - Verify Go version consistency across the repo"
 	@echo "  docker-build  - Build Docker image"
 	@echo "  docker-push   - Build and push Docker image"
 	@echo "  dev-build     - Build with race detector"
