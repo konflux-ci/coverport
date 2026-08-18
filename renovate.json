@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "packageRules": [
+    {
+      "description": "Disable major updates for gopkg.in and go.yaml.in packages. Go encodes major versions in import paths (e.g. .v4 vs .v5), so a major bump requires codebase-wide import path changes that Renovate cannot perform. Without this rule, Renovate generates structurally invalid PRs that claim to upgrade but actually downgrade within the current major version (see issues in PRs #29, #46, #48, #49). Minor and patch updates remain enabled.",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["/^gopkg\\.in//", "/^go\\.yaml\\.in//"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}
