@@ -858,7 +858,11 @@ func (c *CoverageClient) collectRustCoverage(body []byte, testName string) error
 	}
 
 	// Save profraw file
-	profrawPath := filepath.Join(testDir, resp.ProfrawFilename)
+	profrawName, err := sanitizeFilename(resp.ProfrawFilename)
+	if err != nil {
+		return fmt.Errorf("profraw filename: %w", err)
+	}
+	profrawPath := filepath.Join(testDir, profrawName)
 	if err := os.WriteFile(profrawPath, profrawData, 0644); err != nil {
 		return fmt.Errorf("write profraw file: %w", err)
 	}
@@ -866,6 +870,20 @@ func (c *CoverageClient) collectRustCoverage(body []byte, testName string) error
 	fmt.Printf("  Saved: %s (%d bytes)\n", profrawPath, len(profrawData))
 
 	return nil
+}
+
+// sanitizeFilename strips any directory components from a server-provided
+// filename so it cannot escape the target directory via path traversal.
+// A malicious or compromised coverage server could otherwise return a name
+// such as "../../etc/cron.d/backdoor" or "/etc/passwd" and cause the
+// collected data to be written outside the intended output directory.
+// It returns an error when the name does not reduce to a usable path element.
+func sanitizeFilename(name string) (string, error) {
+	base := filepath.Base(name)
+	if base == "." || base == ".." || base == string(filepath.Separator) {
+		return "", fmt.Errorf("invalid filename %q", name)
+	}
+	return base, nil
 }
 
 // collectGoCoverage handles Go coverage format
@@ -894,12 +912,20 @@ func (c *CoverageClient) collectGoCoverage(body []byte, testName string) error {
 	}
 
 	// Save files with proper names
-	metaPath := filepath.Join(testDir, covResp.MetaFilename)
+	metaName, err := sanitizeFilename(covResp.MetaFilename)
+	if err != nil {
+		return fmt.Errorf("metadata filename: %w", err)
+	}
+	metaPath := filepath.Join(testDir, metaName)
 	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
 		return fmt.Errorf("write metadata file: %w", err)
 	}
 
-	counterPath := filepath.Join(testDir, covResp.CountersFilename)
+	counterName, err := sanitizeFilename(covResp.CountersFilename)
+	if err != nil {
+		return fmt.Errorf("counters filename: %w", err)
+	}
+	counterPath := filepath.Join(testDir, counterName)
 	if err := os.WriteFile(counterPath, counterData, 0644); err != nil {
 		return fmt.Errorf("write counters file: %w", err)
 	}
