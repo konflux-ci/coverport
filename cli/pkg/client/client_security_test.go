@@ -17,8 +17,14 @@ func TestSanitizeFilename(t *testing.T) {
 		{name: "absolute path", input: "/etc/passwd", want: "passwd"},
 		{name: "nested path separators", input: "foo/bar/baz.txt", want: "baz.txt"},
 		{name: "trailing separator", input: "report/", want: "report"},
+		{name: "hidden file is preserved", input: ".bashrc", want: ".bashrc"},
+		{name: "leading dots are not traversal", input: "..data.json", want: "..data.json"},
 		{name: "single traversal", input: "..", wantErr: true},
+		{name: "traversal with trailing separator", input: "../", wantErr: true},
+		{name: "deep traversal", input: "../../..", wantErr: true},
 		{name: "current dir", input: ".", wantErr: true},
+		{name: "separator only", input: "/", wantErr: true},
+		{name: "repeated separators only", input: "///", wantErr: true},
 		{name: "empty string", input: "", wantErr: true},
 	}
 
