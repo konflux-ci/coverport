@@ -164,12 +164,12 @@ Before making changes, ask the user:
 
 | E2E tests run in... | Test style | Apply these steps |
 |---|---|---|
-| **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Tests deploy/use the container image (Go, Rust, Python, etc.) | Steps 3-6, E2E pipeline update, Step 8 (Tekton PR) |
+| **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Go/Rust: tests deploy/use the container image | Steps 3-6, E2E pipeline update, Step 8 (Tekton PR) |
 | **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Python: tests run pytest directly against source | **Pattern D: pytest-cov** — no container instrumentation needed |
-| **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Python: app deployed as container (Flask/Django/FastAPI + Gunicorn) | Steps 3-5 (Python), E2E pipeline update, Step 8 — **not** Pattern D |
-| **GitHub Actions only** (no `integration-tests/pipelines/`) | Tests deploy/use the container image | Steps 3-5.5, Step 7 (GitHub Actions) — **skip Steps 6 and 8** |
+| **Tekton integration pipelines only** (`integration-tests/pipelines/`) | Python: app deployed as container (Flask/Django/FastAPI + Gunicorn) | Steps 3-5 (Python), **Step 6 (Python)**, E2E pipeline update, **Step 8 (Python PR)** — **not** Pattern D |
+| **GitHub Actions only** (no `integration-tests/pipelines/`) | Go/Rust: tests deploy/use the container image | Steps 3-5.5, Step 7 (GitHub Actions) — **skip Steps 6 and 8** |
 | **GitHub Actions only** | Python: app deployed as container (Kind, `podman run`, etc.) | Steps 3-5 (Python), Step 7 **Pattern A (Kind)** preferred; Pattern B only for local `podman run` |
-| **Both Tekton and GitHub Actions** | Tests deploy/use the container image | All steps |
+| **Both Tekton and GitHub Actions** | Tests deploy/use the container image | All applicable steps (language-specific: Go/Rust use Step 6 `ENABLE_COVERAGE`; Python uses Step 6 `TARGET_STAGE`) |
 
 **Key rule: Do NOT modify Tekton push/PR pipelines (Steps 6, 8) if the repository does not have a Tekton e2e integration pipeline.** Building an instrumented image in Tekton is pointless if nothing in Tekton consumes it. The instrumented build happens locally (e.g., via `make` with `ENABLE_COVERAGE=true`) in the GitHub Actions workflow instead.
 
@@ -211,10 +211,10 @@ coverage-server = { git = "https://github.com/konflux-ci/coverport.git", subdire
 
 #### Python
 
-Copy the four instrumentation files from the coverport repository into your application
-repository. These files are also available in
-[py-coverage-http](https://github.com/psturc/py-coverage-http); the canonical copies live
-in `instrumentation/python/` in the coverport monorepo.
+Copy the four instrumentation files from `instrumentation/python/` in the coverport monorepo
+into your application repository. [py-coverage-http](https://github.com/psturc/py-coverage-http)
+is a standalone working example of the same pattern — use `instrumentation/python/` as the
+**canonical source** when vendoring files.
 
 ```
 instrumentation/python/coverage_server.py  → server/coverage_server.py
@@ -231,7 +231,7 @@ Dockerfile in Step 5 must copy from these paths.
 - Ensure `coverage` and `gunicorn` are installed in the instrumented image (add to
   `requirements.txt` or install in the Dockerfile test stage)
 - Update `source = /app` in `.coveragerc` if your container `WORKDIR` differs from `/app`
-- Reference implementation: [py-coverage-http](https://github.com/psturc/py-coverage-http)
+- See [py-coverage-http](https://github.com/psturc/py-coverage-http) for a complete end-to-end example
 
 ### Step 4: Add Coverage Initialization Code
 
@@ -342,9 +342,10 @@ RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
 
 Use a multi-stage Dockerfile to keep production images unchanged. The instrumented
 `test` stage installs `sitecustomize.py` into site-packages, sets coverage environment
-variables, and wraps the app CMD with `coverage_server.py`. Build the instrumented image
-by targeting the `test` stage explicitly (Tekton/GHA pass `ENABLE_COVERAGE=true` only when
-your Dockerfile or build script maps that arg to `--target test` or equivalent).
+variables, and wraps the app CMD with `coverage_server.py`.
+
+- **Local / GitHub Actions**: `podman build --target test`
+- **Tekton (buildah-oci-ta)**: set `TARGET_STAGE=test` on the instrumented image build task (Step 6 Python) — do **not** use `ENABLE_COVERAGE=true` alone; Python has no conditional compile step for that arg
 
 ```dockerfile
 # ... normal build stages (install app deps, COPY application code) ...
@@ -380,7 +381,7 @@ podman build --target test -t myapp:instrumented .
 - `COVERAGE_DATA_DIR=/dev/shm` and `TMPDIR=/dev/shm` are required for `readOnlyRootFilesystem` pods
 - `coverage_server.py` exposes the HTTP coverage endpoint on port **53700** (not 9095)
 - `-w 1` is recommended for initial setup; increase workers once coverage collection is verified
-- The reference implementation is [py-coverage-http](https://github.com/psturc/py-coverage-http)
+- End-to-end example: [py-coverage-http](https://github.com/psturc/py-coverage-http) (canonical files: `instrumentation/python/`)
 
 ### Step 5.5: Validate Dockerfile Changes Locally
 
@@ -496,6 +497,64 @@ Find the location after `prefetch-dependencies` task and add:
 - `BUILD_ARGS` includes `ENABLE_COVERAGE=true`
 - Do NOT add a `build-instrumented-image-index` task - the instrumented image is single-platform only
 
+#### Python (Tekton push pipeline)
+
+For Python container apps, the instrumented image is the `test` Dockerfile stage — not a
+`ENABLE_COVERAGE` conditional build. Add the same `build-instrumented-image` task as above,
+but use `TARGET_STAGE` instead of `ENABLE_COVERAGE=true`:
+
+```yaml
+- name: build-instrumented-image
+  params:
+  - name: IMAGE
+    value: $(params.output-image).instrumented
+  - name: DOCKERFILE
+    value: $(params.dockerfile)
+  - name: CONTEXT
+    value: $(params.path-context)
+  - name: TARGET_STAGE
+    value: test
+  - name: HERMETIC
+    value: $(params.hermetic)
+  - name: PREFETCH_INPUT
+    value: $(params.prefetch-input)
+  - name: IMAGE_EXPIRES_AFTER
+    value: $(params.image-expires-after)
+  - name: COMMIT_SHA
+    value: $(tasks.clone-repository.results.commit)
+  - name: BUILD_ARGS
+    value:
+    - $(params.build-args[*])
+  - name: BUILD_ARGS_FILE
+    value: $(params.build-args-file)
+  - name: SOURCE_ARTIFACT
+    value: $(tasks.prefetch-dependencies.results.SOURCE_ARTIFACT)
+  - name: CACHI2_ARTIFACT
+    value: $(tasks.prefetch-dependencies.results.CACHI2_ARTIFACT)
+  runAfter:
+  - prefetch-dependencies
+  taskRef:
+    params:
+    - name: name
+      value: buildah-oci-ta
+    - name: bundle
+      value: quay.io/konflux-ci/tekton-catalog/task-buildah-oci-ta:0.7@sha256:b54509f5f695c0c89de4587a403099a26da5cdc3707037edd4b7cf4342b63edd
+    - name: kind
+      value: task
+    resolver: bundles
+  when:
+  - input: $(tasks.init.results.build)
+    operator: in
+    values:
+    - "true"
+```
+
+**Python Tekton notes:**
+- `TARGET_STAGE=test` maps to `podman build --target test` (buildah-oci-ta parameter)
+- The `test` stage name must match the Dockerfile stage defined in Step 5 (Python)
+- Do not add `ENABLE_COVERAGE=true` to `BUILD_ARGS` for Python — it has no effect unless you
+  add custom Dockerfile logic to interpret it
+
 ### Step 5: Update E2E Test Pipeline
 
 > **Skip this step if e2e tests run only in GitHub Actions.** This step applies only when there is a Tekton integration test pipeline in `integration-tests/pipelines/`.
@@ -599,12 +658,29 @@ Find the `build-images` task (or equivalent) and add `ENABLE_COVERAGE=true` to i
   # ... rest of the task ...
 ```
 
-**Key points**:
+**Key points** (Go/Rust):
 - **With the Go module approach, hermetic builds are now supported!**
 - Enable `hermetic: "true"` and `prefetch-input` for secure, reproducible builds
 - Add `ENABLE_COVERAGE=true` to the regular build task in PR pipeline
 - This enables coverage collection for PR builds which can be used for PR-level testing
 - No need to create a separate instrumented image task in PR pipeline - just modify the existing build task
+
+**C. Python PR builds (Step 8 Python):**
+
+For Python container apps, set `TARGET_STAGE=test` on the PR `build-images` task instead of
+`ENABLE_COVERAGE=true`:
+
+```yaml
+- name: build-images
+  params:
+  # ... other params ...
+  - name: TARGET_STAGE
+    value: test
+```
+
+If the PR pipeline must still produce a production image for merging, keep the default
+production build as-is and add a separate instrumented build task (same as Step 6 Python)
+that tags with `.instrumented`.
 
 ### Step 7: Update GitHub Actions
 
@@ -1396,7 +1472,7 @@ Common issues and solutions:
 | Instrumentation flag | `-cover -covermode=atomic` | `RUSTFLAGS="-C instrument-coverage"` | `coverage.process_startup()` via sitecustomize |
 | Build tags / features | `//go:build coverage` | `#[cfg(feature = "coverage")]` + `--features coverage` | N/A — file-based, no app code changes |
 | Dependency mechanism | `go get` + blank import in `coverage_init.go` | Cargo optional dep + 2 lines in `main.rs` | Vendor 4 files from `instrumentation/python/` |
-| Coverage data format | Go coverprofile (text) | LLVM profraw (binary) | coverage.py JSON (combined to Cobertura XML) |
+| Coverage data format | Go coverprofile (text) | LLVM profraw (binary) | base64-encoded coverage.py SQLite in JSON HTTP response → Cobertura XML |
 | Processing tools | `go tool covdata` | `llvm-profdata` + `llvm-cov` | K8s: `coverage xml` in pod; `--url`: `coverage xml` on runner |
 | Default port | 53700 (CLI fallback: 9095) | 53700 | 53700 |
 | coverport format flag | (default) | `--format=rust` | (auto-detected) |
@@ -1768,7 +1844,7 @@ For a Python web service deployed as a container in Kind or via `podman run` dur
 5. Upload `coverage-output/e2e-tests/coverage.xml` via `codecov/codecov-action`
 6. Pattern B (`--url`) only if app runs via local `podman run` — requires host-side `coverage xml` step
 
-**Reference:** [py-coverage-http](https://github.com/psturc/py-coverage-http)
+**Reference:** [py-coverage-http](https://github.com/psturc/py-coverage-http) (example); canonical files in `instrumentation/python/`
 
 ## Summary
 
