@@ -947,6 +947,8 @@ job (not deployed to Kind).
     import coverage
 
     repo = os.path.abspath(".")
+    # Must match container WORKDIR and .coveragerc `source` (default /app/)
+    container_prefix = "/app/"
     raw_path = "coverage-output/e2e-tests/.coverage"
     xml_path = "coverage-output/e2e-tests/coverage.xml"
     sqlite_path = "coverage-output/e2e-tests/.coverage.local"
@@ -957,7 +959,7 @@ job (not deployed to Kind).
 
     remapped = coverage.CoverageData(no_disk=True)
     for fn in data.measured_files():
-        local_fn = fn.replace("/app/", repo + "/")
+        local_fn = fn.replace(container_prefix, repo + "/")
         lines = data.lines(fn)
         if lines:
             remapped.add_lines({local_fn: lines})
@@ -994,7 +996,7 @@ job (not deployed to Kind).
 - `collect --url` saves `coverage-output/<test-name>/.coverage` only — **serialized** `CoverageData.dumps()` bytes, not SQLite
 - Unlike K8s collect, `--url` does **not** call `/coverage/save` — run `curl .../coverage/save` first if needed
 - Generate XML on the GHA runner with the Python conversion script above (not `coverage xml --data-file=` on the raw file)
-- `[paths]` in `.coveragerc` alone does not fix host-side XML — remap `/app/` file paths explicitly
+- `[paths]` in `.coveragerc` alone does not fix host-side XML — set `container_prefix` in the conversion script to match WORKDIR (default `/app/`)
 - Do not use `coverport process --format=python` on `--url` output until the CLI handles serialized data
 - Smoke-test before collect: `curl http://localhost:<port>/health` (expect `coverage_enabled: true`)
 
@@ -1455,8 +1457,8 @@ Common issues and solutions:
 **Python: Wrong source paths in Codecov report:**
 - **Cause**: `.coveragerc` `source` does not match container `WORKDIR`, or host-side XML used
   `[paths]` without remapping measured file paths from `/app/...`
-- **Solution**: Set `source = /app` (or your actual `WORKDIR`). For Pattern B host XML, remap
-  `/app/` → repo root in the conversion script (see Pattern B Python) — `[paths]` alone is not enough
+- **Solution**: Set `source = /app` (or your actual `WORKDIR`). For Pattern B host XML, set
+  `container_prefix` in the conversion script to match WORKDIR — `[paths]` alone is not enough
 
 **Python: Port 53700 connection refused:**
 - Verify the instrumented image CMD uses `coverage_server.py` wrapper (not plain Gunicorn)
@@ -1874,7 +1876,7 @@ For a Python web service deployed as a container in Kind or via `podman run` dur
 - `server/coverage_server.py`, `server/sitecustomize.py`, `server/.coveragerc`,
   `server/gunicorn_coverage.py` — NEW, vendored from `instrumentation/python/`
 - `Dockerfile` — multi-stage with `test` stage (see Step 5 Python)
-- `.tekton/*-push.yaml` — `build-instrumented-image` with `ENABLE_COVERAGE=true` (if Tekton e2e exists)
+- `.tekton/*-push.yaml` — `build-instrumented-image` with `TARGET_STAGE=test` (if Tekton e2e exists; **not** `ENABLE_COVERAGE=true` — see Step 6 Python)
 - `integration-tests/pipelines/*e2e*.yaml` — instrumented image refs + `collect-and-upload-coverage`
 - `.github/workflows/e2e.yml` — build with `--target test`, **Pattern A (Kind)** preferred for Python
 

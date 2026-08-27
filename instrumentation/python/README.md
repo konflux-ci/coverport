@@ -107,6 +107,8 @@ import os
 import coverage
 
 repo = os.path.abspath(".")
+# Must match container WORKDIR and .coveragerc `source` (default /app/)
+container_prefix = "/app/"
 raw_path = "coverage-output/e2e-tests/.coverage"
 xml_path = "coverage-output/e2e-tests/coverage.xml"
 sqlite_path = "coverage-output/e2e-tests/.coverage.local"
@@ -117,7 +119,7 @@ data.loads(raw)
 
 remapped = coverage.CoverageData(no_disk=True)
 for fn in data.measured_files():
-    local_fn = fn.replace("/app/", repo + "/")
+    local_fn = fn.replace(container_prefix, repo + "/")
     lines = data.lines(fn)
     if lines:
         remapped.add_lines({local_fn: lines})
@@ -135,7 +137,8 @@ PY
 ```
 
 `[paths]` in `.coveragerc` alone does **not** remap container paths for host-side XML
-generation — remap measured file paths explicitly (as above) or use K8s collect (Pattern A).
+generation — set `container_prefix` in the conversion script to match WORKDIR (default
+`/app/`), or use K8s collect (Pattern A).
 
 `coverport process --format=python` currently expects a SQLite `.coverage` file and will fail
 on `--url` output until the CLI handles serialized data (see follow-up ticket).
