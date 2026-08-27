@@ -971,7 +971,9 @@ job (not deployed to Kind).
     db.update(remapped)
     db.write()
 
-    coverage.Coverage(data_file=sqlite_path).load().xml_report(outfile=xml_path)
+    cov = coverage.Coverage(data_file=sqlite_path)
+    cov.load()
+    cov.xml_report(outfile=xml_path)
     print(f"Wrote {xml_path}")
     PY
 

@@ -11,7 +11,7 @@ Multi-language coverage collection system for containerized applications running
 
 ```bash
 go install github.com/konflux-ci/coverport/cli@latest
-coverport collect --url http://localhost:53700 --test-name=local --output=./coverage-output
+coverport collect --url http://localhost:53700/coverage --test-name=local --output=./coverage-output
 ```
 
 See [cli/QUICKSTART.md](cli/QUICKSTART.md) for full details.
