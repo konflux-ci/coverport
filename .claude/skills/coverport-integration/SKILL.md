@@ -212,9 +212,8 @@ coverage-server = { git = "https://github.com/konflux-ci/coverport.git", subdire
 #### Python
 
 Copy the four instrumentation files from `instrumentation/python/` in the coverport monorepo
-into your application repository. [py-coverage-http](https://github.com/psturc/py-coverage-http)
-is a standalone working example of the same pattern — use `instrumentation/python/` as the
-**canonical source** when vendoring files.
+into your application repository. See [instrumentation/python/README.md](../../../instrumentation/python/README.md)
+for file descriptions, Dockerfile example, and local validation steps.
 
 ```
 instrumentation/python/coverage_server.py  → server/coverage_server.py
@@ -231,7 +230,7 @@ Dockerfile in Step 5 must copy from these paths.
 - Ensure `coverage` and `gunicorn` are installed in the instrumented image (add to
   `requirements.txt` or install in the Dockerfile test stage)
 - Update `source = /app` in `.coveragerc` if your container `WORKDIR` differs from `/app`
-- See [py-coverage-http](https://github.com/psturc/py-coverage-http) for a complete end-to-end example
+- See [instrumentation/python/README.md](../../../instrumentation/python/README.md) for Dockerfile and validation details
 
 ### Step 4: Add Coverage Initialization Code
 
@@ -381,7 +380,7 @@ podman build --target test -t myapp:instrumented .
 - `COVERAGE_DATA_DIR=/dev/shm` and `TMPDIR=/dev/shm` are required for `readOnlyRootFilesystem` pods
 - `coverage_server.py` exposes the HTTP coverage endpoint on port **53700** (not 9095)
 - `-w 1` is recommended for initial setup; increase workers once coverage collection is verified
-- End-to-end example: [py-coverage-http](https://github.com/psturc/py-coverage-http) (canonical files: `instrumentation/python/`)
+- See [instrumentation/python/README.md](../../../instrumentation/python/README.md) for local podman validation and `coverport collect` examples
 
 ### Step 5.5: Validate Dockerfile Changes Locally
 
@@ -1844,7 +1843,7 @@ For a Python web service deployed as a container in Kind or via `podman run` dur
 5. Upload `coverage-output/e2e-tests/coverage.xml` via `codecov/codecov-action`
 6. Pattern B (`--url`) only if app runs via local `podman run` — requires host-side `coverage xml` step
 
-**Reference:** [py-coverage-http](https://github.com/psturc/py-coverage-http) (example); canonical files in `instrumentation/python/`
+**Reference:** [instrumentation/python/README.md](../../../instrumentation/python/README.md)
 
 ## Summary
 
