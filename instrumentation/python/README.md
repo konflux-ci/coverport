@@ -1,8 +1,8 @@
 # Python container instrumentation
 
 HTTP-based coverage collection for Python web apps (Flask, Django, FastAPI) running behind
-Gunicorn in a container. Exposes combined multiprocess coverage on port **53700** for the
-coverport CLI.
+Gunicorn in a container. Exposes combined multiprocess coverage on port **53700** by default
+for the coverport CLI (`COVERAGE_PORT` env var overrides).
 
 ## Files
 
@@ -49,22 +49,27 @@ Tekton (buildah-oci-ta): set `TARGET_STAGE=test` on the instrumented image build
 
 ## Local validation (podman)
 
-```bash
-podman build --target test -t myapp:instrumented .
-podman run --rm -d --name py-cov -p 8080:8080 -p 53700:53700 myapp:instrumented
+Use the same port in `podman run`, health checks, and collect URLs. Default is **53700**;
+set `COVERAGE_PORT` in the image if you need a different port (e.g. `9095`).
 
-curl -s http://localhost:53700/health    # coverage_enabled: true
-curl -s http://localhost:8080/             # exercise app routes
-curl -s http://localhost:53700/coverage/save
-curl -s http://localhost:53700/coverage    # non-empty coverage_data
+```bash
+COVERAGE_PORT=53700
+
+podman build --target test -t myapp:instrumented .
+podman run --rm -d --name py-cov -p 8080:8080 -p ${COVERAGE_PORT}:${COVERAGE_PORT} myapp:instrumented
+
+curl -s "http://localhost:${COVERAGE_PORT}/health"    # coverage_enabled: true
+curl -s http://localhost:8080/                         # exercise app routes
+curl -s "http://localhost:${COVERAGE_PORT}/coverage/save"
+curl -s "http://localhost:${COVERAGE_PORT}/coverage"   # non-empty coverage_data
 
 podman stop py-cov
 ```
 
 ## Collect with coverport CLI
 
-**Kubernetes (recommended):** `collect` port-forwards to the pod, triggers save, fetches
-coverage, and generates `coverage.xml` inside the pod.
+**Kubernetes (recommended):** `collect` port-forwards to the pod, checks `/health`, triggers
+`/coverage/save` when needed, fetches `/coverage`, and generates `coverage.xml` inside the pod.
 
 ```bash
 coverport collect \
@@ -75,17 +80,65 @@ coverport collect \
 # → coverage-output/e2e-tests/coverage.xml
 ```
 
-**Local `--url`:** `collect` saves `coverage-output/<test-name>/.coverage` only. Generate XML
-on the host (coverport-cli image has no Python):
+**Local `--url` (Pattern B):** `collect` saves `coverage-output/<test-name>/.coverage` only.
+The file contains **serialized** `CoverageData.dumps()` bytes from the HTTP response — not a
+SQLite database. Generate Cobertura XML on the host (coverport-cli image has no Python).
+
+> **URL format:** `--url` must point at the `/coverage` endpoint. The CLI appends
+> `?name=<test-name>` — it does not add `/coverage` for you.
+> Use `http://localhost:<port>/coverage`, not `http://localhost:<port>`.
+
+> **Save before collect:** Unlike the K8s collect path, `--url` does **not** call
+> `/coverage/save` automatically. Flush worker data first if `/health` shows zero coverage files.
 
 ```bash
-coverport collect --url http://localhost:53700 --test-name=e2e-tests --output=./coverage-output
+COVERAGE_PORT=53700
+
+curl -sf "http://localhost:${COVERAGE_PORT}/coverage/save"
+
+coverport collect \
+  --url "http://localhost:${COVERAGE_PORT}/coverage" \
+  --test-name=e2e-tests \
+  --output=./coverage-output
+
 pip install coverage
-coverage xml \
-  --rcfile=<paths-rcfile-with-/app-mapping> \
-  --data-file=coverage-output/e2e-tests/.coverage \
-  -o coverage-output/e2e-tests/coverage.xml
+python3 <<'PY'
+import os
+import coverage
+
+repo = os.path.abspath(".")
+raw_path = "coverage-output/e2e-tests/.coverage"
+xml_path = "coverage-output/e2e-tests/coverage.xml"
+sqlite_path = "coverage-output/e2e-tests/.coverage.local"
+
+raw = open(raw_path, "rb").read()
+data = coverage.CoverageData(no_disk=True)
+data.loads(raw)
+
+remapped = coverage.CoverageData(no_disk=True)
+for fn in data.measured_files():
+    local_fn = fn.replace("/app/", repo + "/")
+    lines = data.lines(fn)
+    if lines:
+        remapped.add_lines({local_fn: lines})
+    arcs = data.arcs(fn)
+    if arcs:
+        remapped.add_arcs({local_fn: arcs})
+
+db = coverage.CoverageData(basename=sqlite_path)
+db.update(remapped)
+db.write()
+
+coverage.Coverage(data_file=sqlite_path).load().xml_report(outfile=xml_path)
+print(f"Wrote {xml_path}")
+PY
 ```
+
+`[paths]` in `.coveragerc` alone does **not** remap container paths for host-side XML
+generation — remap measured file paths explicitly (as above) or use K8s collect (Pattern A).
+
+`coverport process --format=python` currently expects a SQLite `.coverage` file and will fail
+on `--url` output until the CLI handles serialized data (see follow-up ticket).
 
 ## Configuration notes
 
@@ -100,6 +153,6 @@ coverage xml \
 |----------|---------|
 | `GET /health` | Health check; `coverage_enabled: true` when active |
 | `GET /coverage/save` | Flush Gunicorn worker coverage to `/dev/shm` |
-| `GET /coverage` | Combined base64-encoded coverage.py data (JSON wrapper) |
+| `GET /coverage` | Combined base64-encoded `CoverageData.dumps()` data (JSON wrapper) |
 
 Default port: **53700** (`COVERAGE_PORT` env var overrides).

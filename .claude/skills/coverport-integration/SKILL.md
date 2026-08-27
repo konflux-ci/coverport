@@ -378,7 +378,7 @@ podman build --target test -t myapp:instrumented .
 - Replace `app:app` with your WSGI entry point
 - `sitecustomize.py` must be installed into **site-packages** so every Gunicorn worker loads it
 - `COVERAGE_DATA_DIR=/dev/shm` and `TMPDIR=/dev/shm` are required for `readOnlyRootFilesystem` pods
-- `coverage_server.py` exposes the HTTP coverage endpoint on port **53700** (not 9095)
+- `coverage_server.py` exposes the HTTP coverage endpoint on port **53700** by default (`COVERAGE_PORT` env var overrides)
 - `-w 1` is recommended for initial setup; increase workers once coverage collection is verified
 - See [instrumentation/python/README.md](../../../instrumentation/python/README.md) for local podman validation and `coverport collect` examples
 
@@ -410,11 +410,13 @@ podman images | grep test-
 
 **Python validation (after instrumented build):**
 ```bash
-podman run --rm -d --name py-cov-test -p 8080:8080 -p 53700:53700 test-instrumented
-curl -s http://localhost:53700/health    # expect coverage_enabled: true
-curl -s http://localhost:8080/           # hit app endpoints to generate coverage
-curl -s http://localhost:53700/coverage/save
-curl -s http://localhost:53700/coverage  # expect non-empty coverage_data
+# Default port is 53700; use the same value as COVERAGE_PORT if your image overrides it
+COVERAGE_PORT=53700
+podman run --rm -d --name py-cov-test -p 8080:8080 -p ${COVERAGE_PORT}:${COVERAGE_PORT} test-instrumented
+curl -s "http://localhost:${COVERAGE_PORT}/health"    # expect coverage_enabled: true
+curl -s http://localhost:8080/                        # hit app endpoints to generate coverage
+curl -s "http://localhost:${COVERAGE_PORT}/coverage/save"
+curl -s "http://localhost:${COVERAGE_PORT}/coverage"  # expect non-empty coverage_data
 podman stop py-cov-test
 ```
 
@@ -836,8 +838,12 @@ against it in the same job. The app exposes coverage via HTTP. Use coverport's
 `--url` flag instead of Kubernetes discovery.
 
 **Coverage port**: Instrumentation servers use **53700** by default (Go, Python, Rust).
-Map `-p 53700:53700` when running locally. The CLI without `--port` tries 53700 then **9095**
-as fallback for legacy setups.
+Map `-p 53700:53700` when running locally (or match `COVERAGE_PORT` if your image sets it).
+The CLI without `--port` tries 53700 then **9095** as fallback for legacy setups.
+
+**`--url` base path**: Pass the full `/coverage` endpoint URL (e.g. `http://localhost:53700/coverage`).
+The CLI appends `?name=<test-name>` — it does not add `/coverage` for you. A bare
+`http://localhost:53700` returns 404 on Python servers.
 
 ##### Pattern B (Go): Local HTTP collection
 
@@ -864,7 +870,7 @@ as fallback for legacy setups.
       -v $PWD/coverage-output:/workspace/coverage-output \
       quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
-        --url http://localhost:53700 \
+        --url http://localhost:53700/coverage \
         --test-name="e2e-tests" \
         --output=/workspace/coverage-output
 
@@ -886,19 +892,21 @@ as fallback for legacy setups.
 
 **Key points for Go `--url` collection:**
 - `--network host` is required so coverport can reach localhost:53700
+- `--url` must include `/coverage` (e.g. `http://localhost:53700/coverage`)
 - Coverport detects format from the `/coverage` response body (not `/health`)
 - When using `--url` (no container image), you must pass `--repo-url`
   and `--commit-sha` to the `process` command explicitly
-- Legacy Go images may listen on 9095 — use `--url http://localhost:9095` and map that port
+- Legacy Go images may listen on 9095 — use `--url http://localhost:9095/coverage` and map that port
 - The coverport CLI uses repo URL/commit to clone the repo and remap coverage
   paths from container paths to source paths
 
 ##### Pattern B (Python): Local HTTP collection
 
 > **Prefer Pattern A (Kind/K8s) for Python container apps in GitHub Actions.** K8s `collect`
-> generates `coverage.xml` inside the pod automatically. Pattern B (`--url`) only saves a raw
-> `.coverage` file — the coverport-cli image has no Python, so XML must be generated on the
-> **GHA runner** after collect.
+> checks `/health`, triggers `/coverage/save` when needed, fetches `/coverage`, and generates
+> `coverage.xml` inside the pod automatically. Pattern B (`--url`) only saves serialized
+> `CoverageData.dumps()` bytes as `.coverage` — the coverport-cli image has no Python, so XML
+> must be generated on the **GHA runner** after collect using the conversion script below.
 
 Use after completing Steps 3-5 (Python). Only when the app runs via `podman run` in the same
 job (not deployed to Kind).
@@ -918,12 +926,15 @@ job (not deployed to Kind).
   if: always()
   run: |
     mkdir -p coverage-output && chmod 777 coverage-output
+    COVERAGE_PORT=53700
+    # --url collect does NOT call /coverage/save (unlike K8s collect)
+    curl -sf "http://localhost:${COVERAGE_PORT}/coverage/save" || true
     podman run --rm \
       --network host \
       -v $PWD/coverage-output:/workspace/coverage-output \
       quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
-        --url http://localhost:53700 \
+        --url "http://localhost:${COVERAGE_PORT}/coverage" \
         --test-name="e2e-tests" \
         --output=/workspace/coverage-output
 
@@ -931,17 +942,36 @@ job (not deployed to Kind).
   if: always()
   run: |
     pip install coverage
-    # Remap container /app paths to repo root for coverage.py
-    cat > /tmp/coveragerc-paths <<'EOF'
-    [paths]
-    source =
-        /app/
-        .
-    EOF
-    coverage xml \
-      --rcfile=/tmp/coveragerc-paths \
-      --data-file=coverage-output/e2e-tests/.coverage \
-      -o coverage-output/e2e-tests/coverage.xml
+    python3 <<'PY'
+    import os
+    import coverage
+
+    repo = os.path.abspath(".")
+    raw_path = "coverage-output/e2e-tests/.coverage"
+    xml_path = "coverage-output/e2e-tests/coverage.xml"
+    sqlite_path = "coverage-output/e2e-tests/.coverage.local"
+
+    raw = open(raw_path, "rb").read()
+    data = coverage.CoverageData(no_disk=True)
+    data.loads(raw)
+
+    remapped = coverage.CoverageData(no_disk=True)
+    for fn in data.measured_files():
+        local_fn = fn.replace("/app/", repo + "/")
+        lines = data.lines(fn)
+        if lines:
+            remapped.add_lines({local_fn: lines})
+        arcs = data.arcs(fn)
+        if arcs:
+            remapped.add_arcs({local_fn: arcs})
+
+    db = coverage.CoverageData(basename=sqlite_path)
+    db.update(remapped)
+    db.write()
+
+    coverage.Coverage(data_file=sqlite_path).load().xml_report(outfile=xml_path)
+    print(f"Wrote {xml_path}")
+    PY
 
 - name: Upload e2e coverage to Codecov
   if: always()
@@ -958,12 +988,15 @@ job (not deployed to Kind).
 ```
 
 **Key points for Python `--url` collection:**
-- `--network host` is required so coverport can reach localhost:53700
-- `collect --url` saves `coverage-output/<test-name>/.coverage` only — **not** `coverage.xml`
-- Coverport detects Python from the `/coverage` JSON response (`coverage_data` field)
-- Generate XML on the GHA runner with `coverage xml` (coverport-cli container has no Python)
-- Use `[paths]` in `.coveragerc` to remap `/app` (container) → `.` (repo root)
-- Smoke-test before collect: `curl http://localhost:53700/health` (expect `coverage_enabled: true`)
+- `--network host` is required so coverport can reach localhost
+- `--url` must be `http://localhost:<port>/coverage` (CLI appends `?name=`; bare host:port → 404)
+- Map the same port in `podman run` (`-p`) and `COVERAGE_PORT` if your image overrides the default
+- `collect --url` saves `coverage-output/<test-name>/.coverage` only — **serialized** `CoverageData.dumps()` bytes, not SQLite
+- Unlike K8s collect, `--url` does **not** call `/coverage/save` — run `curl .../coverage/save` first if needed
+- Generate XML on the GHA runner with the Python conversion script above (not `coverage xml --data-file=` on the raw file)
+- `[paths]` in `.coveragerc` alone does not fix host-side XML — remap `/app/` file paths explicitly
+- Do not use `coverport process --format=python` on `--url` output until the CLI handles serialized data
+- Smoke-test before collect: `curl http://localhost:<port>/health` (expect `coverage_enabled: true`)
 
 ##### Pattern C: Client-Side / Test Runner-Based Coverage Collection
 
@@ -1056,7 +1089,7 @@ from the collected `.profraw` data.
       -v $PWD/coverage-output:/workspace/coverage-output \
       quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
-        --url http://localhost:53700 \
+        --url http://localhost:53700/coverage \
         --test-name="e2e-tests" \
         --output=/workspace/coverage-output
 
@@ -1161,9 +1194,12 @@ Before committing the changes, verify all modifications are correct:
 
 **Local validation (already completed in Step 5.5):**
 - [ ] `podman build` (production) succeeds
-- [ ] `podman build --build-arg ENABLE_COVERAGE=true` (instrumented) succeeds
-- [ ] Instrumented build logs show "Building with coverage instrumentation..."
-- [ ] Production build logs show "Building production binary..."
+- [ ] Go/Rust: `podman build --build-arg ENABLE_COVERAGE=true` (instrumented) succeeds
+- [ ] Python: `podman build --target test` (instrumented) succeeds
+- [ ] Go/Rust instrumented build logs show "Building with coverage instrumentation..."
+- [ ] Python instrumented container logs show `[coverage-wrapper] HTTP server listening on port <port>`
+- [ ] Go production build logs show "Building production binary..."
+- [ ] Python production stage runs plain Gunicorn (no `coverage_server.py` wrapper)
 
 **Go module setup checklist:**
 - [ ] `go.mod` has coverport dependency added (as direct, not indirect)
@@ -1177,10 +1213,11 @@ Before committing the changes, verify all modifications are correct:
 - [ ] `COVERAGE_PROCESS_START`, `COVERAGE_DATA_DIR=/dev/shm`, and `TMPDIR=/dev/shm` set in instrumented image
 - [ ] CMD uses `coverage_server.py` wrapper with Gunicorn and `gunicorn_coverage.py` config
 - [ ] `.coveragerc` `source` path matches container `WORKDIR`
-- [ ] Port 53700 exposed and mapped in e2e workflow / K8s deployment
+- [ ] Coverage HTTP port exposed and mapped (default **53700**, or `COVERAGE_PORT` if set)
 - [ ] Pattern A (Kind): upload `coverage-output/<test-name>/coverage.xml` after collect
-- [ ] Pattern B (`--url`): host-side `coverage xml` step after collect (not just codecov upload)
-- [ ] `curl http://localhost:53700/health` returns `coverage_enabled: true` (local validation)
+- [ ] Pattern B (`--url`): `--url` uses `http://localhost:<port>/coverage`; host-side deserialize + XML step after collect
+- [ ] Pattern B (`--url`): `curl .../coverage/save` before collect when workers have not flushed data
+- [ ] `curl http://localhost:<port>/health` returns `coverage_enabled: true` (local validation)
 
 **File modifications checklist (Tekton path):**
 - [ ] `Dockerfile` has `ENABLE_COVERAGE` build arg (removed `COVERAGE_SERVER_URL`)
@@ -1257,7 +1294,8 @@ After integration is deployed to CI/CD, provide these verification steps to the 
    - Trigger the e2e workflow
    - Verify the coverport `collect` and `process` steps succeed in the logs
    - Check Codecov dashboard for coverage data with `e2e-tests` flag
-   - For `--url` collection: verify the app container was reachable on port **53700**
+   - For `--url` collection: verify the app container was reachable on the coverage port and
+     `--url` included `/coverage` (e.g. `http://localhost:53700/coverage`)
      (9095 only for legacy Go instrumentation)
 
 4. **Check unit test coverage:**
@@ -1384,18 +1422,25 @@ Common issues and solutions:
 
 ### Python-Specific Troubleshooting
 
+**Python: `collect --url` returns 404:**
+- **Cause**: `--url` points at the server root (e.g. `http://localhost:9095`) instead of `/coverage`
+- **Solution**: Use `http://localhost:<port>/coverage` — the CLI appends `?name=<test-name>` only
+
 **Python: `coverage.xml` missing after `collect --url`:**
-- **Cause**: `--url` collection saves only `.coverage` (SQLite), not Cobertura XML. XML generation
-  via `coverage xml` runs inside the pod on the **K8s collect path** only — not for `--url`
+- **Cause**: `--url` collection saves serialized `CoverageData.dumps()` bytes as `.coverage`, not
+  Cobertura XML or a SQLite database. XML generation via `coverage xml` in-pod runs on the
+  **K8s collect path** only — not for `--url`
 - **Solution**: Prefer **Pattern A (Kind/K8s)** for Python in GHA. For Pattern B (`--url`), run
-  `coverage xml` on the GHA runner after collect (see Pattern B Python). Do not expect
-  `coverport process` inside the coverport-cli container — it has no Python
+  the host-side deserialize + line-remap script after collect (see Pattern B Python). Do not run
+  `coverage xml --data-file=` on the raw collected file — it fails with "file is not a database".
+  Do not use `coverport process --format=python` on `--url` output until the CLI handles serialized data.
 
 **Python: `/coverage` returns empty or "No coverage files found":**
 - **Cause**: Gunicorn workers have not flushed coverage data to `/dev/shm`
-- **Solution**: Coverport `collect` triggers `/coverage/save` automatically (SIGHUP to Gunicorn master).
+- **Solution**: K8s `collect` checks `/health` and triggers `/coverage/save` automatically when
+  no files exist. **`collect --url` does not** — call `/coverage/save` manually before collect.
   Verify `gunicorn_coverage.py` is loaded via `-c /opt/gunicorn_coverage.py` and the `worker_exit`
-  hook is present. Manually test: `curl http://localhost:53700/coverage/save` then `/coverage`
+  hook is present. Manually test: `curl http://localhost:<port>/coverage/save` then `/coverage`
 
 **Python: Coverage files not written (readOnlyRootFilesystem pods):**
 - **Cause**: `TMPDIR` defaults to `/tmp` which may be read-only
@@ -1408,8 +1453,10 @@ Common issues and solutions:
   Merely setting `PYTHONPATH` is unreliable across Gunicorn worker forks
 
 **Python: Wrong source paths in Codecov report:**
-- **Cause**: `.coveragerc` `source` does not match container `WORKDIR`
-- **Solution**: Set `source = /app` (or your actual `WORKDIR`) and add a `[paths]` mapping if needed
+- **Cause**: `.coveragerc` `source` does not match container `WORKDIR`, or host-side XML used
+  `[paths]` without remapping measured file paths from `/app/...`
+- **Solution**: Set `source = /app` (or your actual `WORKDIR`). For Pattern B host XML, remap
+  `/app/` → repo root in the conversion script (see Pattern B Python) — `[paths]` alone is not enough
 
 **Python: Port 53700 connection refused:**
 - Verify the instrumented image CMD uses `coverage_server.py` wrapper (not plain Gunicorn)
@@ -1471,12 +1518,12 @@ Common issues and solutions:
 | Instrumentation flag | `-cover -covermode=atomic` | `RUSTFLAGS="-C instrument-coverage"` | `coverage.process_startup()` via sitecustomize |
 | Build tags / features | `//go:build coverage` | `#[cfg(feature = "coverage")]` + `--features coverage` | N/A — file-based, no app code changes |
 | Dependency mechanism | `go get` + blank import in `coverage_init.go` | Cargo optional dep + 2 lines in `main.rs` | Vendor 4 files from `instrumentation/python/` |
-| Coverage data format | Go coverprofile (text) | LLVM profraw (binary) | base64-encoded coverage.py SQLite in JSON HTTP response → Cobertura XML |
-| Processing tools | `go tool covdata` | `llvm-profdata` + `llvm-cov` | K8s: `coverage xml` in pod; `--url`: `coverage xml` on runner |
-| Default port | 53700 (CLI fallback: 9095) | 53700 | 53700 |
+| Coverage data format | Go coverprofile (text) | LLVM profraw (binary) | JSON HTTP response with base64 `CoverageData.dumps()` bytes → Cobertura XML |
+| Processing tools | `go tool covdata` | `llvm-profdata` + `llvm-cov` | K8s: `coverage xml` in pod; `--url`: host deserialize + `xml_report` |
+| Default port | 53700 (CLI fallback: 9095) | 53700 | 53700 (`COVERAGE_PORT` overrides) |
 | coverport format flag | (default) | `--format=rust` | (auto-detected) |
 | Binary extraction | Not needed | Required — `llvm-cov` needs the exact binary | Not needed |
-| Separate `process` step | Often yes (`--url` / OCI) | Yes (`--format=rust`) | K8s collect: no; `--url`: host `coverage xml` |
+| Separate `process` step | Often yes (`--url` / OCI) | Yes (`--format=rust`) | K8s collect: no; `--url`: host XML script (not `coverport process` yet) |
 | LLVM tools in CI | Not needed | Must install `llvm-tools-preview` | Not needed |
 | Runtime requirement | None (uses Go's `net/http`) | None (coverage-server brings tokio) | Gunicorn + `coverage` package |
 | Data directory | `GOCOVERDIR` | profraw files | `/dev/shm` (requires `TMPDIR=/dev/shm`) |
@@ -1841,7 +1888,7 @@ For a Python web service deployed as a container in Kind or via `podman run` dur
 3. Add instrumented Dockerfile `test` stage (Step 5 Python); build with `--target test`
 4. Collect via **Pattern A (Kind)** — `coverport collect` with namespace/label-selector → `coverage.xml`
 5. Upload `coverage-output/e2e-tests/coverage.xml` via `codecov/codecov-action`
-6. Pattern B (`--url`) only if app runs via local `podman run` — requires host-side `coverage xml` step
+6. Pattern B (`--url`) only if app runs via local `podman run` — requires host-side deserialize + XML step
 
 **Reference:** [instrumentation/python/README.md](../../../instrumentation/python/README.md)
 
@@ -1868,7 +1915,7 @@ This skill automates coverport integration by:
 13. **E2E coverage collection in GitHub Actions** using coverport CLI container via podman:
     - Pattern A: Kubernetes-based collection — upload `coverage.out` (Go) or `coverage.xml` (Python K8s path)
     - Pattern B (Go): Local `--url` on port 53700 + `process`
-    - Pattern B (Python): Local `--url` only — `collect` → `.coverage`, then host-side `coverage xml`
+    - Pattern B (Python): Local `--url` — `collect` → serialized `.coverage`, then host deserialize + `xml_report`
     - Pattern C: Client-side collection (test runner output, e.g. Cypress)
     - Pattern D: pytest-cov against source (Python only, no container instrumentation)
 14. Providing comprehensive post-integration validation checklist
@@ -1884,7 +1931,7 @@ The integration enables automatic e2e test coverage collection and upload to Cod
 - **GitHub Actions support**: E2e coverage collection using coverport CLI container via podman
 - **Multiple collection patterns**: Kubernetes, local `--url`, client-side test runner, pytest-cov, or Python container HTTP
 - **Pattern D: pytest-cov**: For Python projects where e2e tests run pytest directly against source — no container instrumentation needed, just `--cov` flags and codecov-cli upload
-- **Pattern B (Python)**: For local `podman run` only — `collect --url` saves `.coverage`; generate XML on the GHA runner
+- **Pattern B (Python)**: For local `podman run` only — `collect --url` saves serialized `.coverage`; generate XML on the GHA runner with the conversion script
 - **Tekton codecov-cli support**: Handles the required `--commit-sha`, `--git-service`, and `--slug` flags that Tekton needs (no CI auto-detection)
 - **Coverage upload on test failure**: Captures test exit code to ensure coverage uploads even when tests fail in Tekton
 - **OIDC auth**: GitHub Actions workflows use OIDC (`use_oidc: true`) instead of token-based auth
