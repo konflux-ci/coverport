@@ -65,7 +65,7 @@ cd test/e2e
 COVERPORT_BIN=$(pwd)/../../cli/coverport-cover go test -v -timeout 25m ./...
 
 # Run locally
-./coverport collect --url http://localhost:53700 --test-name=local --output=./coverage-output
+./coverport collect --url http://localhost:53700/coverage --test-name=local --output=./coverage-output
 ./coverport discover --namespace=my-ns --images=quay.io/org/app:latest
 ./coverport process --input=./coverage-output --codecov-token=$TOKEN
 
@@ -81,8 +81,10 @@ cd cli && make docker-build
   Rust `process` extracts `/testapp` from the image and sets `COVERAGE_BINARY`.
 - **Node.js**: Pattern C only — `TestProcessNodejsFilesystem` (`process --format=nyc`);
   no HTTP `collect` (format collides with Python). Uses `coverport-testapp-nodejs`.
-- **Python**: Pattern D only — `TestPythonPytestCov` (`pytest --cov` on
-  `test/fixtures/python/`); no Kind image / coverport CLI path.
+- **Python**: Pattern D (`TestPythonPytestCov` — `pytest --cov` on
+  `test/fixtures/python/`) and container HTTP collection (Patterns A/B) via
+  `instrumentation/python/`; Kind + `collect` for container path, local
+  `collect --url` for Pattern B (see skill + COVERPORT-362 for CLI gaps).
 - Fixture rebuild/push instructions: `test/fixtures/README.md`.
 
 ## Design Choices
