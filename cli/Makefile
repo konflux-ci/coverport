@@ -75,6 +75,7 @@ help:
 	@echo "  clean         - Remove built artifacts"
 	@echo "  test          - Run tests"
 	@echo "  lint          - Run linters"
+	@echo "  check-go-version - Check Go version consistency"
 	@echo "  docker-build  - Build Docker image"
 	@echo "  docker-push   - Build and push Docker image"
 	@echo "  dev-build     - Build with race detector"
