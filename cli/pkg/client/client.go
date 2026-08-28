@@ -860,7 +860,7 @@ func (c *CoverageClient) collectRustCoverage(body []byte, testName string) error
 	// Save profraw file
 	profrawName, err := sanitizeFilename(resp.ProfrawFilename)
 	if err != nil {
-		return fmt.Errorf("profraw filename: %w", err)
+		return fmt.Errorf("sanitize profraw filename: %w", err)
 	}
 	profrawPath := filepath.Join(testDir, profrawName)
 	if err := os.WriteFile(profrawPath, profrawData, 0644); err != nil {
@@ -914,7 +914,7 @@ func (c *CoverageClient) collectGoCoverage(body []byte, testName string) error {
 	// Save files with proper names
 	metaName, err := sanitizeFilename(covResp.MetaFilename)
 	if err != nil {
-		return fmt.Errorf("metadata filename: %w", err)
+		return fmt.Errorf("sanitize metadata filename: %w", err)
 	}
 	metaPath := filepath.Join(testDir, metaName)
 	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
@@ -923,7 +923,7 @@ func (c *CoverageClient) collectGoCoverage(body []byte, testName string) error {
 
 	counterName, err := sanitizeFilename(covResp.CountersFilename)
 	if err != nil {
-		return fmt.Errorf("counters filename: %w", err)
+		return fmt.Errorf("sanitize counters filename: %w", err)
 	}
 	counterPath := filepath.Join(testDir, counterName)
 	if err := os.WriteFile(counterPath, counterData, 0644); err != nil {
