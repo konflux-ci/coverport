@@ -31,7 +31,7 @@ echo ""
 echo "Example 3: Collect from specific container images"
 echo "--------------------------------------------------"
 coverport collect \
-  --images=quay.io/myorg/app1:latest,quay.io/myorg/app2:latest \
+  --images=quay.io/konflux-ci/app1:latest,quay.io/konflux-ci/app2:latest \
   --test-name="image-based-test" \
   --output=./coverage-output \
   --verbose
@@ -61,7 +61,7 @@ cat > /tmp/snapshot.json << 'EOF'
   "components": [
     {
       "name": "myapp",
-      "containerImage": "quay.io/myorg/myapp:latest"
+      "containerImage": "quay.io/konflux-ci/myapp:latest"
     }
   ]
 }
