@@ -329,8 +329,8 @@ def _repo_url(row, org):
     if csv_url:
         return csv_url
     repo = row.get("Repository", "").strip()
-    provider = _codecov_provider(row)
-    if provider == "gl":
+    ci = row.get("CI System", "").strip()
+    if "GitLab" in ci:
         print(f"WARNING: No URL for {repo} — falling back to GitHub URL. "
               "GitLab repos should have URL column populated in the CSV.")
     return f"https://github.com/{org}/{repo}"
