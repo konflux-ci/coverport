@@ -1,8 +1,11 @@
 package processor
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -562,4 +565,198 @@ func TestCopyFile_SourceNotFound(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for nonexistent source")
 	}
+}
+
+func TestIsSQLiteCoverageFile(t *testing.T) {
+	if !isSQLiteCoverageFile([]byte(sqliteMagic + "rest")) {
+		t.Error("expected SQLite magic to be detected")
+	}
+	if isSQLiteCoverageFile([]byte("serialized coverage data")) {
+		t.Error("expected non-SQLite data to return false")
+	}
+}
+
+func TestProcessSerializedPythonCoverage(t *testing.T) {
+	pythonPath, err := exec.LookPath("python3")
+	if err != nil {
+		pythonPath, err = exec.LookPath("python")
+	}
+	if err != nil {
+		t.Skip("python not available")
+	}
+
+	if _, err := exec.LookPath("coverage"); err != nil {
+		if err := exec.Command(pythonPath, "-m", "coverage", "--version").Run(); err != nil {
+			t.Skip("coverage package not available")
+		}
+	}
+
+	tmpDir := t.TempDir()
+	repoRoot := filepath.Join(tmpDir, "repo")
+	srcDir := filepath.Join(repoRoot, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "main.py"), []byte("x=1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	coverageFile := filepath.Join(tmpDir, "input", ".coverage")
+	if err := os.MkdirAll(filepath.Dir(coverageFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	createFixture := exec.Command(pythonPath, "-c", `
+import sys
+from coverage import CoverageData
+data = CoverageData(no_disk=True)
+data.add_lines({"/app/src/main.py": [1]})
+sys.stdout.buffer.write(data.dumps())
+`)
+	fixtureData, err := createFixture.Output()
+	if err != nil {
+		t.Fatalf("failed to create serialized fixture: %v", err)
+	}
+	if err := os.WriteFile(coverageFile, fixtureData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	outputFile := filepath.Join(tmpDir, "coverage.xml")
+	proc := NewCoverageProcessor(FormatPython)
+	err = proc.Process(context.Background(), ProcessOptions{
+		Format:     FormatPython,
+		InputDir:   filepath.Dir(coverageFile),
+		OutputFile: outputFile,
+		RepoRoot:   repoRoot,
+	})
+	if err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+
+	xmlData, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("coverage.xml not created: %v", err)
+	}
+	content := string(xmlData)
+	if strings.Contains(content, "/app/") {
+		t.Errorf("coverage.xml should not contain container paths, got: %s", content)
+	}
+	if !strings.Contains(content, "main.py") {
+		t.Errorf("coverage.xml should contain repo-relative main.py path, got: %s", content)
+	}
+}
+
+func TestProcessSerializedPythonCoverage_SrcPrefix(t *testing.T) {
+	pythonPath := requirePythonWithCoverage(t)
+
+	tmpDir := t.TempDir()
+	repoRoot := filepath.Join(tmpDir, "repo")
+	srcDir := filepath.Join(repoRoot, "lib")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "util.py"), []byte("x=1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	coverageFile := writeSerializedCoverageFixture(t, pythonPath, tmpDir, "/src/lib/util.py", []int{1})
+
+	outputFile := filepath.Join(tmpDir, "coverage.xml")
+	proc := NewCoverageProcessor(FormatPython)
+	if err := proc.Process(context.Background(), ProcessOptions{
+		Format:     FormatPython,
+		InputDir:   filepath.Dir(coverageFile),
+		OutputFile: outputFile,
+		RepoRoot:   repoRoot,
+	}); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+
+	xmlData, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("coverage.xml not created: %v", err)
+	}
+	content := string(xmlData)
+	if strings.Contains(content, "/src/") {
+		t.Errorf("coverage.xml should not contain /src/ container paths, got: %s", content)
+	}
+	if !strings.Contains(content, "util.py") {
+		t.Errorf("coverage.xml should contain util.py, got: %s", content)
+	}
+}
+
+func TestProcessSerializedPythonCoverage_GenerateHTML(t *testing.T) {
+	pythonPath := requirePythonWithCoverage(t)
+
+	tmpDir := t.TempDir()
+	repoRoot := filepath.Join(tmpDir, "repo")
+	srcDir := filepath.Join(repoRoot, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "main.py"), []byte("x=1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	inputDir := filepath.Join(tmpDir, "input")
+	coverageFile := writeSerializedCoverageFixture(t, pythonPath, inputDir, "/app/src/main.py", []int{1})
+
+	outputFile := filepath.Join(inputDir, "coverage.xml")
+	proc := NewCoverageProcessor(FormatPython)
+	if err := proc.Process(context.Background(), ProcessOptions{
+		Format:       FormatPython,
+		InputDir:     filepath.Dir(coverageFile),
+		OutputFile:   outputFile,
+		RepoRoot:     repoRoot,
+		GenerateHTML: true,
+	}); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+
+	htmlIndex := filepath.Join(inputDir, "htmlcov", "index.html")
+	if _, err := os.Stat(htmlIndex); err != nil {
+		t.Fatalf("HTML report not generated at %s: %v", htmlIndex, err)
+	}
+}
+
+func requirePythonWithCoverage(t *testing.T) string {
+	t.Helper()
+	pythonPath, err := exec.LookPath("python3")
+	if err != nil {
+		pythonPath, err = exec.LookPath("python")
+	}
+	if err != nil {
+		t.Skip("python not available")
+	}
+	if err := exec.Command(pythonPath, "-m", "coverage", "--version").Run(); err != nil {
+		t.Skip("coverage package not available")
+	}
+	return pythonPath
+}
+
+func writeSerializedCoverageFixture(t *testing.T, pythonPath, dir, filePath string, lines []int) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	linesJSON, err := json.Marshal(lines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createFixture := exec.Command(pythonPath, "-c", fmt.Sprintf(`
+import sys
+from coverage import CoverageData
+data = CoverageData(no_disk=True)
+data.add_lines({%q: %s})
+sys.stdout.buffer.write(data.dumps())
+`, filePath, string(linesJSON)))
+	fixtureData, err := createFixture.Output()
+	if err != nil {
+		t.Fatalf("failed to create serialized fixture: %v", err)
+	}
+	coverageFile := filepath.Join(dir, ".coverage")
+	if err := os.WriteFile(coverageFile, fixtureData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return coverageFile
 }

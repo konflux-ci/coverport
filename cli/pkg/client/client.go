@@ -59,7 +59,7 @@ type CoverageResponse struct {
 type PythonCoverageResponse struct {
 	Label         string `json:"label"`
 	Timestamp     string `json:"timestamp"`
-	CoverageData  string `json:"coverage_data"`  // base64 encoded .coverage SQLite data
+	CoverageData  string `json:"coverage_data"`  // base64 encoded serialized CoverageData (coverage.py dumps)
 	FilesCombined int    `json:"files_combined"` // Number of files combined (for multiprocess)
 	Message       string `json:"message"`        // Optional message
 }
@@ -260,7 +260,7 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 
 	// Check health to detect Python coverage and trigger save if needed
 	health, err := c.checkCoverageHealth(localPort)
-	isPython := err == nil && health.CoverageEnabled
+	isPython := err == nil && health.Status == "ok" && health.CoverageEnabled
 
 	if isPython {
 		fmt.Printf("  Detected Python coverage server\n")
@@ -280,7 +280,7 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 
 	// Collect coverage via HTTP
 	coverageURL := fmt.Sprintf("http://localhost:%d/coverage", localPort)
-	if err := c.collectCoverageFromURL(coverageURL, testName); err != nil {
+	if _, err := c.collectCoverageFromURL(coverageURL, testName); err != nil {
 		return fmt.Errorf("collect coverage: %w", err)
 	}
 
@@ -301,14 +301,80 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 	return nil
 }
 
+// normalizeCoverageURL ensures the URL points at the /coverage endpoint.
+func normalizeCoverageURL(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("URL must use http or https scheme (e.g. http://localhost:53700/coverage)")
+	}
+
+	path := strings.TrimSuffix(u.Path, "/")
+	switch {
+	case path == "" || path == "/":
+		u.Path = "/coverage"
+	case path == "/coverage":
+		u.Path = "/coverage"
+	default:
+		return "", fmt.Errorf("unsupported coverage URL path %q: use http://host:port or http://host:port/coverage", path)
+	}
+
+	return u.String(), nil
+}
+
+func coverageBaseURL(coverageURL string) (*url.URL, error) {
+	u, err := url.Parse(coverageURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse URL: %w", err)
+	}
+
+	path := strings.TrimSuffix(u.Path, "/")
+	if strings.HasSuffix(path, "/coverage") {
+		path = strings.TrimSuffix(path, "/coverage")
+	}
+	u.Path = path
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u, nil
+}
+
+func coverageHealthURL(coverageURL string) (string, error) {
+	base, err := coverageBaseURL(coverageURL)
+	if err != nil {
+		return "", err
+	}
+	base.Path = "/health"
+	return base.String(), nil
+}
+
+func coverageSaveURL(coverageURL string) (string, error) {
+	base, err := coverageBaseURL(coverageURL)
+	if err != nil {
+		return "", err
+	}
+	base.Path = "/coverage/save"
+	return base.String(), nil
+}
+
 // checkCoverageHealth checks the coverage server health endpoint to detect format
 func (c *CoverageClient) checkCoverageHealth(localPort int) (*HealthResponse, error) {
 	healthURL := fmt.Sprintf("http://localhost:%d/health", localPort)
+	return c.checkCoverageHealthAtURL(healthURL)
+}
+
+func (c *CoverageClient) checkCoverageHealthAtURL(healthURL string) (*HealthResponse, error) {
 	resp, err := c.httpClient.Get(healthURL)
 	if err != nil {
 		return nil, fmt.Errorf("health check: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("health check returned %d: %s", resp.StatusCode, body)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -326,11 +392,20 @@ func (c *CoverageClient) checkCoverageHealth(localPort int) (*HealthResponse, er
 // triggerPythonCoverageSave hits the /coverage/save endpoint to trigger SIGHUP
 func (c *CoverageClient) triggerPythonCoverageSave(localPort int) error {
 	saveURL := fmt.Sprintf("http://localhost:%d/coverage/save", localPort)
+	return c.triggerPythonCoverageSaveAtURL(saveURL)
+}
+
+func (c *CoverageClient) triggerPythonCoverageSaveAtURL(saveURL string) error {
 	resp, err := c.httpClient.Get(saveURL)
 	if err != nil {
 		return fmt.Errorf("trigger save: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("save endpoint returned %d: %s", resp.StatusCode, body)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -481,9 +556,40 @@ print('XML_GENERATED:' + xml_path)
 	return nil
 }
 
-// CollectCoverageFromURL collects coverage data from a direct URL (no port-forwarding)
-func (c *CoverageClient) CollectCoverageFromURL(coverageURL, testName string) error {
-	return c.collectCoverageFromURL(coverageURL, testName)
+// CollectCoverageFromURL collects coverage data from a direct URL (no port-forwarding).
+// Returns the detected coverage format (go, python, rust).
+func (c *CoverageClient) CollectCoverageFromURL(coverageURL, testName string) (CoverageFormat, error) {
+	normalizedURL, err := normalizeCoverageURL(coverageURL)
+	if err != nil {
+		return "", fmt.Errorf("normalize coverage URL: %w", err)
+	}
+	if normalizedURL != coverageURL {
+		fmt.Printf("  Normalized coverage URL: %s\n", normalizedURL)
+	}
+
+	healthURL, err := coverageHealthURL(normalizedURL)
+	if err != nil {
+		return "", fmt.Errorf("derive health URL: %w", err)
+	}
+
+	health, err := c.checkCoverageHealthAtURL(healthURL)
+	if err == nil && health.Status == "ok" && health.CoverageEnabled {
+		fmt.Printf("  Detected Python coverage server\n")
+		if health.CoverageFiles == 0 {
+			fmt.Printf("  No coverage files yet, triggering save...\n")
+			saveURL, err := coverageSaveURL(normalizedURL)
+			if err != nil {
+				return "", fmt.Errorf("derive save URL: %w", err)
+			}
+			if err := c.triggerPythonCoverageSaveAtURL(saveURL); err != nil {
+				return "", fmt.Errorf("trigger coverage save before collect: %w", err)
+			}
+		} else {
+			fmt.Printf("  Found %d existing coverage file(s)\n", health.CoverageFiles)
+		}
+	}
+
+	return c.collectCoverageFromURL(normalizedURL, testName)
 }
 
 // savePodMetadata retrieves pod information and saves it to metadata.json
@@ -728,20 +834,27 @@ func (c *CoverageClient) setupPortForward(podName string, targetPort int) (int, 
 	}
 }
 
-// collectCoverageFromURL collects coverage from the given URL
-// Automatically detects Go or Python coverage format
-func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) error {
-	// Try GET request first (Python uses GET with query param)
-	getURL := coverageURL + "?name=" + url.QueryEscape(testName)
+// collectCoverageFromURL collects coverage from the given URL.
+// Automatically detects Go, Python, or Rust coverage format.
+func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) (CoverageFormat, error) {
+	collectURL, err := url.Parse(coverageURL)
+	if err != nil {
+		return "", fmt.Errorf("parse coverage URL: %w", err)
+	}
+	query := collectURL.Query()
+	query.Set("name", testName)
+	collectURL.RawQuery = query.Encode()
+	getURL := collectURL.String()
+
 	resp, err := c.httpClient.Get(getURL)
 	if err != nil {
-		return fmt.Errorf("send coverage request: %w", err)
+		return "", fmt.Errorf("send coverage request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("coverage endpoint returned %d: %s", resp.StatusCode, body)
+		return "", fmt.Errorf("coverage endpoint returned %d: %s", resp.StatusCode, body)
 	}
 
 	// Verify we're talking to a coverage server (v0.0.2+ sets this header)
@@ -752,7 +865,7 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 	// Read response body into buffer for format detection
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read response body: %w", err)
+		return "", fmt.Errorf("read response body: %w", err)
 	}
 
 	// Detect format based on response fields
@@ -761,13 +874,13 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 
 	switch format {
 	case FormatPython:
-		return c.collectPythonCoverage(body, testName)
+		return FormatPython, c.collectPythonCoverage(body, testName)
 	case FormatRust:
-		return c.collectRustCoverage(body, testName)
+		return FormatRust, c.collectRustCoverage(body, testName)
 	case FormatGo:
-		return c.collectGoCoverage(body, testName)
+		return FormatGo, c.collectGoCoverage(body, testName)
 	default:
-		return fmt.Errorf("unsupported coverage format: %s", format)
+		return "", fmt.Errorf("unsupported coverage format: %s", format)
 	}
 }
 

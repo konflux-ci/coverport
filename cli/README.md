@@ -52,7 +52,7 @@ Perfect for local development and testing:
 
 # Collect coverage directly
 coverport collect \
-  --url http://localhost:53700 \
+  --url http://localhost:53700/coverage \
   --test-name="local-e2e-test" \
   --output=./coverage-output
 
@@ -101,7 +101,7 @@ Collect raw coverage data from HTTP endpoints or Kubernetes pods.
 
 **Discovery Methods** (choose one):
 
-- `--url` - Direct HTTP URL to coverage server (e.g., `http://localhost:53700`) - **New!**
+- `--url` - Direct HTTP URL to coverage server (e.g., `http://localhost:53700/coverage`) - **New!**
 - `--snapshot` - Konflux/Tekton snapshot JSON (recommended for CI/CD)
 - `--snapshot-file` - Path to snapshot JSON file
 - `--images` - Comma-separated list of container images
@@ -401,10 +401,16 @@ For each discovered pod:
 **Go-specific flow:**
 - POST `/coverage` → retrieves binary coverage data (covmeta + covcounters)
 
-**Python-specific flow:**
+**Python-specific flow (Kubernetes collect):**
 - Triggers coverage save via `/coverage/save` (sends SIGHUP to Gunicorn workers)
-- GET `/coverage` → retrieves base64-encoded coverage data
+- GET `/coverage` → retrieves base64-encoded serialized coverage data
 - Exec into pod: runs `coverage xml` to generate Cobertura XML using Python inside the pod
+
+**Python-specific flow (`collect --url`, Pattern B):**
+- Checks `/health` and triggers `/coverage/save` when no coverage files exist yet
+- GET `/coverage` → saves serialized `.coverage` data locally
+- Run `coverport process --format=python` to convert serialized data to Cobertura XML with repo-relative paths
+- See [instrumentation/python/README.md](../instrumentation/python/README.md) for details
 
 ### 3. Report Processing
 
@@ -414,7 +420,9 @@ For each discovered pod:
 3. **Filter**: Removes unwanted files (e.g., coverage_server.go)
 4. **HTML**: Generates HTML visualization
 
-**Python**: Report processing happens automatically during `collect` — Cobertura XML is generated inside the pod where Python and the `coverage` package are already available. No separate `process` step is needed.
+**Python (Kubernetes collect):** Report processing happens automatically during `collect` — Cobertura XML is generated inside the pod where Python and the `coverage` package are already available.
+
+**Python (`collect --url`):** Use `coverport process --format=python --coverage-dir=...` after collection. The CLI remaps container paths (e.g. `/app/`) to your local repo root before generating XML.
 
 ### 4. OCI Artifact Push
 

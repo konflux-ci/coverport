@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+const sqliteMagic = "SQLite format 3\x00"
+
+// pythonContainerPathPrefixes are common container WORKDIR paths remapped to the local repo root.
+var pythonContainerPathPrefixes = []string{"/app/", "/src/", "/code/", "/workspace/"}
+
 // CoverageFormat represents the type of coverage data
 type CoverageFormat string
 
@@ -234,6 +239,11 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 
 	fmt.Printf("   Found coverage file: %s\n", coverageFile)
 
+	rawData, err := os.ReadFile(coverageFile)
+	if err != nil {
+		return fmt.Errorf("read coverage file: %w", err)
+	}
+
 	// Check for Python
 	pythonPath, err := exec.LookPath("python")
 	if err != nil {
@@ -259,7 +269,16 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 		return fmt.Errorf("failed to get absolute path for output file: %w", err)
 	}
 
-	// Create a temporary .coveragerc with path mappings for container -> local path remapping
+	if !isSQLiteCoverageFile(rawData) {
+		sqlitePath, err := p.processSerializedPythonCoverage(ctx, opts, absCoverageFile, absOutputFile, pythonPath)
+		if err != nil {
+			return err
+		}
+		defer os.Remove(sqlitePath)
+		return p.finishPythonCoverageReports(ctx, opts, pythonPath, sqlitePath, absOutputFile, "")
+	}
+
+	// SQLite .coverage file: use coverage.py xml with optional path mappings
 	// This allows coverage.py to find source files when they're at different paths
 	rcFile, err := p.createPythonCoverageRC(opts.RepoRoot)
 	if err != nil {
@@ -296,8 +315,12 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 
 	fmt.Printf("   Coverage XML generated: %s\n", opts.OutputFile)
 
+	return p.finishPythonCoverageReports(ctx, opts, pythonPath, absCoverageFile, absOutputFile, rcFile)
+}
+
+func (p *CoverageProcessor) finishPythonCoverageReports(ctx context.Context, opts ProcessOptions, pythonPath, absCoverageFile, absOutputFile, rcFile string) error {
 	// Optionally generate text report for summary
-	textReportFile := strings.TrimSuffix(opts.OutputFile, filepath.Ext(opts.OutputFile)) + ".txt"
+	textReportFile := strings.TrimSuffix(absOutputFile, filepath.Ext(absOutputFile)) + ".txt"
 	textArgs := []string{"-m", "coverage", "report",
 		"--data-file=" + absCoverageFile}
 	if rcFile != "" {
@@ -311,12 +334,10 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 
 	textOutput, err := textCmd.CombinedOutput()
 	if err == nil {
-		// Save text report
 		if err := os.WriteFile(textReportFile, textOutput, 0644); err == nil {
 			fmt.Printf("   Text report generated: %s\n", textReportFile)
 		}
 
-		// Show summary (last line typically contains total)
 		lines := strings.Split(string(textOutput), "\n")
 		for _, line := range lines {
 			if strings.HasPrefix(line, "TOTAL") {
@@ -329,7 +350,6 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 		}
 	}
 
-	// Generate HTML report if requested
 	if opts.GenerateHTML {
 		if err := p.generatePythonHTMLReport(ctx, pythonPath, absCoverageFile, opts.RepoRoot, opts.InputDir, rcFile); err != nil {
 			fmt.Printf("Warning: Failed to generate HTML report: %v\n", err)
@@ -338,6 +358,89 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 
 	fmt.Println("Python coverage processed successfully!")
 	return nil
+}
+
+func isSQLiteCoverageFile(data []byte) bool {
+	return len(data) >= len(sqliteMagic) && string(data[:len(sqliteMagic)]) == sqliteMagic
+}
+
+// processSerializedPythonCoverage converts coverage.py serialized dumps() data to Cobertura XML.
+// Serialized data from collect --url stores container paths that must be remapped explicitly;
+// [paths] in .coveragerc does not apply to loads() data.
+// Returns the path to a temporary remapped SQLite coverage file for follow-up reports.
+func (p *CoverageProcessor) processSerializedPythonCoverage(ctx context.Context, opts ProcessOptions, absCoverageFile, absOutputFile, pythonPath string) (string, error) {
+	fmt.Println("   Detected serialized Python coverage data (not SQLite)")
+
+	repoRoot := opts.RepoRoot
+	if repoRoot == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("get working directory: %w", err)
+		}
+		repoRoot = cwd
+	}
+	repoRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("get absolute repo root: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(repoRoot); err == nil {
+		repoRoot = resolved
+	}
+
+	sqlitePath := filepath.Join(opts.InputDir, ".coverage.remapped")
+	prefixesArg := strings.Join(pythonContainerPathPrefixes, "\n")
+
+	pythonScript := `
+import os
+import sys
+from coverage import CoverageData, Coverage
+
+repo_root = sys.argv[1]
+prefixes = [p for p in sys.argv[2].split("\n") if p]
+raw_path = sys.argv[3]
+xml_path = sys.argv[4]
+sqlite_path = sys.argv[5]
+
+raw = open(raw_path, "rb").read()
+data = CoverageData(no_disk=True)
+data.loads(raw)
+
+remapped = CoverageData(no_disk=True)
+for fn in data.measured_files():
+    local_fn = fn
+    for prefix in prefixes:
+        if fn.startswith(prefix):
+            local_fn = repo_root + "/" + fn[len(prefix):]
+            break
+    lines = data.lines(fn)
+    if lines:
+        remapped.add_lines({local_fn: lines})
+    arcs = data.arcs(fn)
+    if arcs:
+        remapped.add_arcs({local_fn: arcs})
+
+db = CoverageData(basename=sqlite_path)
+db.update(remapped)
+db.write()
+
+cov = Coverage(data_file=sqlite_path)
+cov.load()
+cov.xml_report(outfile=xml_path)
+`
+
+	fmt.Println("   Converting serialized coverage to XML format...")
+	cmd := exec.CommandContext(ctx, pythonPath, "-c", pythonScript, repoRoot, prefixesArg, absCoverageFile, absOutputFile, sqlitePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to convert serialized Python coverage to XML: %w\nOutput: %s", err, string(output))
+	}
+
+	if _, err := os.Stat(absOutputFile); err != nil {
+		return "", fmt.Errorf("coverage XML file was not created: %w", err)
+	}
+
+	fmt.Printf("   Coverage XML generated: %s\n", absOutputFile)
+	return sqlitePath, nil
 }
 
 // createPythonCoverageRC creates a temporary .coveragerc file with path mappings
@@ -352,19 +455,13 @@ func (p *CoverageProcessor) createPythonCoverageRC(repoRoot string) (string, err
 		repoRoot = cwd
 	}
 
-	// Common container source paths that need to be remapped
-	containerPaths := []string{"/app/", "/src/", "/code/", "/workspace/"}
-
 	// Create the [paths] section for coverage.py
-	// Format: source = <local_path>\n          <container_path1>\n          <container_path2>...
-	rcContent := fmt.Sprintf(`[paths]
-source =
-    %s
-    /app/
-    /src/
-    /code/
-    /workspace/
-`, repoRoot)
+	pathLines := make([]string, 0, len(pythonContainerPathPrefixes)+1)
+	pathLines = append(pathLines, fmt.Sprintf("    %s", repoRoot))
+	for _, prefix := range pythonContainerPathPrefixes {
+		pathLines = append(pathLines, fmt.Sprintf("    %s", strings.TrimSuffix(prefix, "/")))
+	}
+	rcContent := fmt.Sprintf("[paths]\nsource =\n%s\n", strings.Join(pathLines, "\n"))
 
 	// Write to temp file
 	tmpFile, err := os.CreateTemp("", "coveragerc-*")
@@ -378,7 +475,6 @@ source =
 		return "", fmt.Errorf("write rc content: %w", err)
 	}
 
-	_ = containerPaths // silence unused warning
 	return tmpFile.Name(), nil
 }
 
