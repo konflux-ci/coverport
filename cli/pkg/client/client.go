@@ -309,21 +309,19 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 }
 
 // normalizeCoverageURL ensures the URL points at the /coverage endpoint.
-// Accepted paths are empty, /, or /coverage; other paths return an error.
+// Accepted paths are empty (bare host:port) or /coverage; other paths return an error.
 func normalizeCoverageURL(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("parse URL: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("URL must use http or https scheme (e.g. http://localhost:53700/coverage)")
+		return "", fmt.Errorf("URL must use http or https scheme (e.g. http://localhost:53700)")
 	}
 
 	path := strings.TrimSuffix(u.Path, "/")
 	switch path {
-	case "", "/":
-		u.Path = "/coverage"
-	case "/coverage":
+	case "", "/coverage":
 		u.Path = "/coverage"
 	default:
 		return "", fmt.Errorf("unsupported coverage URL path %q: use http://host:port or http://host:port/coverage", path)
@@ -346,23 +344,13 @@ func coverageBaseURL(coverageURL string) (*url.URL, error) {
 	return u, nil
 }
 
-// coverageHealthURL derives the /health URL from a coverage server URL.
-func coverageHealthURL(coverageURL string) (string, error) {
+// coverageEndpointURL derives a sibling endpoint URL from a coverage server URL.
+func coverageEndpointURL(coverageURL, path string) (string, error) {
 	base, err := coverageBaseURL(coverageURL)
 	if err != nil {
 		return "", err
 	}
-	base.Path = "/health"
-	return base.String(), nil
-}
-
-// coverageSaveURL derives the /coverage/save URL from a coverage server URL.
-func coverageSaveURL(coverageURL string) (string, error) {
-	base, err := coverageBaseURL(coverageURL)
-	if err != nil {
-		return "", err
-	}
-	base.Path = "/coverage/save"
+	base.Path = path
 	return base.String(), nil
 }
 
@@ -567,6 +555,7 @@ print('XML_GENERATED:' + xml_path)
 }
 
 // CollectCoverageFromURL collects coverage data from a direct URL (no port-forwarding).
+// See CollectCoverageFromURLWithFormat for URL normalization and Python pre-flight behavior.
 func (c *CoverageClient) CollectCoverageFromURL(coverageURL, testName string) error {
 	_, err := c.CollectCoverageFromURLWithFormat(coverageURL, testName)
 	return err
@@ -588,7 +577,7 @@ func (c *CoverageClient) CollectCoverageFromURLWithFormat(coverageURL, testName 
 		fmt.Printf("  Normalized coverage URL: %s\n", normalizedURL)
 	}
 
-	healthURL, err := coverageHealthURL(normalizedURL)
+	healthURL, err := coverageEndpointURL(normalizedURL, "/health")
 	if err != nil {
 		return "", fmt.Errorf("derive health URL: %w", err)
 	}
@@ -598,10 +587,12 @@ func (c *CoverageClient) CollectCoverageFromURLWithFormat(coverageURL, testName 
 		fmt.Printf("  Detected Python coverage server\n")
 		if health.CoverageFiles == 0 {
 			fmt.Printf("  No coverage files yet, triggering save...\n")
-			saveURL, err := coverageSaveURL(normalizedURL)
+			saveURL, err := coverageEndpointURL(normalizedURL, "/coverage/save")
 			if err != nil {
 				return "", fmt.Errorf("derive save URL: %w", err)
 			}
+			// Unlike the K8s collect path, --url has no exec fallback to generate coverage
+			// inside the container, so a failed /coverage/save is a hard error.
 			if err := c.triggerPythonCoverageSaveAtURL(saveURL); err != nil {
 				return "", fmt.Errorf("trigger coverage save before collect: %w", err)
 			}

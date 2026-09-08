@@ -52,7 +52,7 @@ Perfect for local development and testing:
 
 # Collect coverage directly
 coverport collect \
-  --url http://localhost:53700/coverage \
+  --url http://localhost:53700 \
   --test-name="local-e2e-test" \
   --output=./coverage-output
 
@@ -101,7 +101,7 @@ Collect raw coverage data from HTTP endpoints or Kubernetes pods.
 
 **Discovery Methods** (choose one):
 
-- `--url` - Direct HTTP URL to coverage server (e.g., `http://localhost:53700/coverage`) - **New!**
+- `--url` - Direct HTTP URL to coverage server (e.g., `http://localhost:53700`) - **New!**
 - `--snapshot` - Konflux/Tekton snapshot JSON (recommended for CI/CD)
 - `--snapshot-file` - Path to snapshot JSON file
 - `--images` - Comma-separated list of container images

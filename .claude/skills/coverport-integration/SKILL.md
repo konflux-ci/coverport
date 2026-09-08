@@ -841,9 +841,8 @@ against it in the same job. The app exposes coverage via HTTP. Use coverport's
 Map `-p 53700:53700` when running locally (or match `COVERAGE_PORT` if your image sets it).
 The CLI without `--port` tries 53700 then **9095** as fallback for legacy setups.
 
-**`--url` base path**: Pass the full `/coverage` endpoint URL (e.g. `http://localhost:53700/coverage`).
-The CLI appends `?name=<test-name>` — it does not add `/coverage` for you. A bare
-`http://localhost:53700` returns 404 on Python servers.
+**`--url` format**: Pass `http://localhost:<port>` or `http://localhost:<port>/coverage`.
+The CLI normalizes bare host:port URLs to `/coverage` and appends `?name=<test-name>`.
 
 ##### Pattern B (Go): Local HTTP collection
 
@@ -870,7 +869,7 @@ The CLI appends `?name=<test-name>` — it does not add `/coverage` for you. A b
       -v $PWD/coverage-output:/workspace/coverage-output \
       quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
-        --url http://localhost:53700/coverage \
+        --url http://localhost:53700 \
         --test-name="e2e-tests" \
         --output=/workspace/coverage-output
 
@@ -892,11 +891,11 @@ The CLI appends `?name=<test-name>` — it does not add `/coverage` for you. A b
 
 **Key points for Go `--url` collection:**
 - `--network host` is required so coverport can reach localhost:53700
-- `--url` must include `/coverage` (e.g. `http://localhost:53700/coverage`)
+- `--url` accepts `http://localhost:<port>` or `http://localhost:<port>/coverage` (CLI normalizes bare host:port to `/coverage`)
 - Coverport detects format from the `/coverage` response body (not `/health`)
 - When using `--url` (no container image), you must pass `--repo-url`
   and `--commit-sha` to the `process` command explicitly
-- Legacy Go images may listen on 9095 — use `--url http://localhost:9095/coverage` and map that port
+- Legacy Go images may listen on 9095 — use `--url http://localhost:9095` and map that port
 - The coverport CLI uses repo URL/commit to clone the repo and remap coverage
   paths from container paths to source paths
 
@@ -1063,7 +1062,7 @@ from the collected `.profraw` data.
       -v $PWD/coverage-output:/workspace/coverage-output \
       quay.io/konflux-ci/konflux-devprod/coverport-cli:${COVERPORT_TAG} \
       collect \
-        --url http://localhost:53700/coverage \
+        --url http://localhost:53700 \
         --test-name="e2e-tests" \
         --output=/workspace/coverage-output
 
@@ -1268,7 +1267,7 @@ After integration is deployed to CI/CD, provide these verification steps to the 
    - Verify the coverport `collect` and `process` steps succeed in the logs
    - Check Codecov dashboard for coverage data with `e2e-tests` flag
    - For `--url` collection: verify the app container was reachable on the coverage port and
-     `--url` included `/coverage` (e.g. `http://localhost:53700/coverage`)
+     `--url` reached the app on the coverage port (e.g. `http://localhost:53700`)
      (9095 only for legacy Go instrumentation)
 
 4. **Check unit test coverage:**

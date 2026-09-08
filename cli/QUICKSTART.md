@@ -2,7 +2,7 @@
 
 Get started with `coverport` in 5 minutes!
 
-> **New**: `coverport` now supports direct URL collection (`--url http://localhost:53700/coverage`) for local development, and uses a manifest-based workflow for simplified batch processing. See `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` for details.
+> **New**: `coverport` now supports direct URL collection (`--url http://localhost:53700`) for local development, and uses a manifest-based workflow for simplified batch processing. See `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` for details.
 
 ## Prerequisites
 

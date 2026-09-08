@@ -389,14 +389,15 @@ func (p *CoverageProcessor) processSerializedPythonCoverage(ctx context.Context,
 		repoRoot = resolved
 	}
 
-	sqlitePath, err := filepath.Abs(filepath.Join(opts.InputDir, ".coverage.remapped"))
+	tmpFile, err := os.CreateTemp(opts.InputDir, ".coverage.remapped-*")
 	if err != nil {
-		return "", fmt.Errorf("get absolute remapped coverage path: %w", err)
+		return "", fmt.Errorf("create temp remapped coverage file: %w", err)
 	}
+	sqlitePath := tmpFile.Name()
+	_ = tmpFile.Close()
 	prefixesArg := strings.Join(pythonContainerPathPrefixes, "\n")
 
 	pythonScript := `
-import os
 import sys
 from coverage import CoverageData, Coverage
 
