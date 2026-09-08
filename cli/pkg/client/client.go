@@ -312,10 +312,10 @@ func normalizeCoverageURL(rawURL string) (string, error) {
 	}
 
 	path := strings.TrimSuffix(u.Path, "/")
-	switch {
-	case path == "" || path == "/":
+	switch path {
+	case "", "/":
 		u.Path = "/coverage"
-	case path == "/coverage":
+	case "/coverage":
 		u.Path = "/coverage"
 	default:
 		return "", fmt.Errorf("unsupported coverage URL path %q: use http://host:port or http://host:port/coverage", path)
@@ -330,10 +330,7 @@ func coverageBaseURL(coverageURL string) (*url.URL, error) {
 		return nil, fmt.Errorf("parse URL: %w", err)
 	}
 
-	path := strings.TrimSuffix(u.Path, "/")
-	if strings.HasSuffix(path, "/coverage") {
-		path = strings.TrimSuffix(path, "/coverage")
-	}
+	path := strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), "/coverage")
 	u.Path = path
 	u.RawQuery = ""
 	u.Fragment = ""
