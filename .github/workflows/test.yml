@@ -27,13 +27,8 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-      - name: Set up Python
-        uses: actions/setup-python@83679a8e1754f170a99777d5c1d5ef0c9bcb1fb # v6
-        with:
-          python-version: '3.12'
-
       - name: Install coverage.py
-        run: pip install coverage
+        run: python3 -m pip install coverage
 
       - name: Download dependencies
         working-directory: cli
