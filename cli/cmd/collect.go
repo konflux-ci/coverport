@@ -553,15 +553,12 @@ func collectFromURL(ctx context.Context, verbose bool) {
 
 	// Collect coverage from URL
 	fmt.Printf("  Sending coverage collection request...\n")
-	detectedFormat, err := client.CollectCoverageFromURL(coverageURL, testName)
+	detectedFormat, err := client.CollectCoverageFromURLWithFormat(coverageURL, testName)
 	if err != nil {
 		exitWithError("Failed to collect coverage from URL: %v", err)
 	}
 
 	manifestFormat := string(detectedFormat)
-	if manifestFormat == "" {
-		manifestFormat = "go"
-	}
 
 	printSuccess("Coverage collected from URL")
 	fmt.Printf("  📂 Output: %s/%s\n", outputDir, testName)

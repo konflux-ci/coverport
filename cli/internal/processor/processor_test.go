@@ -577,19 +577,7 @@ func TestIsSQLiteCoverageFile(t *testing.T) {
 }
 
 func TestProcessSerializedPythonCoverage(t *testing.T) {
-	pythonPath, err := exec.LookPath("python3")
-	if err != nil {
-		pythonPath, err = exec.LookPath("python")
-	}
-	if err != nil {
-		t.Skip("python not available")
-	}
-
-	if _, err := exec.LookPath("coverage"); err != nil {
-		if err := exec.Command(pythonPath, "-m", "coverage", "--version").Run(); err != nil {
-			t.Skip("coverage package not available")
-		}
-	}
+	pythonPath := requirePythonWithCoverage(t)
 
 	tmpDir := t.TempDir()
 	repoRoot := filepath.Join(tmpDir, "repo")
@@ -601,29 +589,11 @@ func TestProcessSerializedPythonCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	coverageFile := filepath.Join(tmpDir, "input", ".coverage")
-	if err := os.MkdirAll(filepath.Dir(coverageFile), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	createFixture := exec.Command(pythonPath, "-c", `
-import sys
-from coverage import CoverageData
-data = CoverageData(no_disk=True)
-data.add_lines({"/app/src/main.py": [1]})
-sys.stdout.buffer.write(data.dumps())
-`)
-	fixtureData, err := createFixture.Output()
-	if err != nil {
-		t.Fatalf("failed to create serialized fixture: %v", err)
-	}
-	if err := os.WriteFile(coverageFile, fixtureData, 0644); err != nil {
-		t.Fatal(err)
-	}
+	coverageFile := writeSerializedCoverageFixture(t, pythonPath, filepath.Join(tmpDir, "input"), "/app/src/main.py", []int{1})
 
 	outputFile := filepath.Join(tmpDir, "coverage.xml")
 	proc := NewCoverageProcessor(FormatPython)
-	err = proc.Process(context.Background(), ProcessOptions{
+	err := proc.Process(context.Background(), ProcessOptions{
 		Format:     FormatPython,
 		InputDir:   filepath.Dir(coverageFile),
 		OutputFile: outputFile,

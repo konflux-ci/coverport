@@ -80,27 +80,36 @@ coverport collect \
 # → coverage-output/e2e-tests/coverage.xml
 ```
 
-**Local `--url` (Pattern B):** `collect` saves `coverage-output/<test-name>/.coverage` only.
-The file contains **serialized** `CoverageData.dumps()` bytes from the HTTP response — not a
-SQLite database. Generate Cobertura XML on the host (coverport-cli image has no Python).
+**Local `--url` (Pattern B):** `collect` saves `coverage-output/<test-name>/.coverage`. The file may
+be **serialized** `CoverageData.dumps()` bytes from the HTTP response or a SQLite database from
+the K8s collect path. Convert to Cobertura XML on the host with `coverport process --format=python`.
 
-> **URL format:** `--url` must point at the `/coverage` endpoint. The CLI appends
-> `?name=<test-name>` — it does not add `/coverage` for you.
-> Use `http://localhost:<port>/coverage`, not `http://localhost:<port>`.
+> **URL format:** `--url` accepts `http://localhost:<port>` or `http://localhost:<port>/coverage`.
+> The CLI normalizes bare host:port URLs to `/coverage` and appends `?name=<test-name>`.
 
-> **Save before collect:** Unlike the K8s collect path, `--url` does **not** call
-> `/coverage/save` automatically. Flush worker data first if `/health` shows zero coverage files.
+> **Save before collect:** For Python servers, `collect --url` checks `/health` and calls
+> `/coverage/save` automatically when no coverage files exist yet (same as the K8s collect path).
 
 ```bash
 COVERAGE_PORT=53700
 
-curl -sf "http://localhost:${COVERAGE_PORT}/coverage/save"
-
 coverport collect \
-  --url "http://localhost:${COVERAGE_PORT}/coverage" \
+  --url "http://localhost:${COVERAGE_PORT}" \
   --test-name=e2e-tests \
   --output=./coverage-output
 
+coverport process \
+  --format=python \
+  --input=./coverage-output/e2e-tests \
+  --output=./coverage-output/e2e-tests/coverage.xml \
+  --repo-root=.
+# → coverage-output/e2e-tests/coverage.xml
+```
+
+For manual conversion without the CLI, deserialize and remap container paths explicitly — `[paths]`
+in `.coveragerc` does not apply to `loads()` data:
+
+```bash
 pip install coverage
 python3 <<'PY'
 import os
@@ -138,12 +147,8 @@ print(f"Wrote {xml_path}")
 PY
 ```
 
-`[paths]` in `.coveragerc` alone does **not** remap container paths for host-side XML
-generation — set `container_prefix` in the conversion script to match WORKDIR (default
-`/app/`), or use K8s collect (Pattern A).
-
-`coverport process --format=python` currently expects a SQLite `.coverage` file and will fail
-on `--url` output until the CLI handles serialized data (see follow-up ticket).
+`coverport process --format=python` accepts both SQLite `.coverage` files and serialized
+`--url` output; container paths are remapped to the local repo root automatically.
 
 ## Configuration notes
 

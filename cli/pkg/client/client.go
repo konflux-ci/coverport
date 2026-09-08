@@ -33,6 +33,13 @@ import (
 	"k8s.io/client-go/transport/spdy"
 )
 
+const maxHTTPErrorBodySize = 1 << 20 // 1 MiB cap for error response bodies
+
+// readHTTPErrorBody reads up to maxHTTPErrorBodySize bytes from an HTTP error response body.
+func readHTTPErrorBody(r io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(r, maxHTTPErrorBodySize))
+}
+
 // CoverageClient handles coverage collection from Kubernetes pods
 type CoverageClient struct {
 	clientset       kubernetes.Interface
@@ -302,6 +309,7 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 }
 
 // normalizeCoverageURL ensures the URL points at the /coverage endpoint.
+// Accepted paths are empty, /, or /coverage; other paths return an error.
 func normalizeCoverageURL(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -324,6 +332,7 @@ func normalizeCoverageURL(rawURL string) (string, error) {
 	return u.String(), nil
 }
 
+// coverageBaseURL returns the scheme/host/port portion of a coverage server URL.
 func coverageBaseURL(coverageURL string) (*url.URL, error) {
 	u, err := url.Parse(coverageURL)
 	if err != nil {
@@ -337,6 +346,7 @@ func coverageBaseURL(coverageURL string) (*url.URL, error) {
 	return u, nil
 }
 
+// coverageHealthURL derives the /health URL from a coverage server URL.
 func coverageHealthURL(coverageURL string) (string, error) {
 	base, err := coverageBaseURL(coverageURL)
 	if err != nil {
@@ -346,6 +356,7 @@ func coverageHealthURL(coverageURL string) (string, error) {
 	return base.String(), nil
 }
 
+// coverageSaveURL derives the /coverage/save URL from a coverage server URL.
 func coverageSaveURL(coverageURL string) (string, error) {
 	base, err := coverageBaseURL(coverageURL)
 	if err != nil {
@@ -361,6 +372,7 @@ func (c *CoverageClient) checkCoverageHealth(localPort int) (*HealthResponse, er
 	return c.checkCoverageHealthAtURL(healthURL)
 }
 
+// checkCoverageHealthAtURL queries a coverage server's /health endpoint.
 func (c *CoverageClient) checkCoverageHealthAtURL(healthURL string) (*HealthResponse, error) {
 	resp, err := c.httpClient.Get(healthURL)
 	if err != nil {
@@ -369,7 +381,7 @@ func (c *CoverageClient) checkCoverageHealthAtURL(healthURL string) (*HealthResp
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readHTTPErrorBody(resp.Body)
 		return nil, fmt.Errorf("health check returned %d: %s", resp.StatusCode, body)
 	}
 
@@ -392,6 +404,7 @@ func (c *CoverageClient) triggerPythonCoverageSave(localPort int) error {
 	return c.triggerPythonCoverageSaveAtURL(saveURL)
 }
 
+// triggerPythonCoverageSaveAtURL hits /coverage/save at the given URL to flush worker coverage data.
 func (c *CoverageClient) triggerPythonCoverageSaveAtURL(saveURL string) error {
 	resp, err := c.httpClient.Get(saveURL)
 	if err != nil {
@@ -400,7 +413,7 @@ func (c *CoverageClient) triggerPythonCoverageSaveAtURL(saveURL string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readHTTPErrorBody(resp.Body)
 		return fmt.Errorf("save endpoint returned %d: %s", resp.StatusCode, body)
 	}
 
@@ -554,8 +567,19 @@ print('XML_GENERATED:' + xml_path)
 }
 
 // CollectCoverageFromURL collects coverage data from a direct URL (no port-forwarding).
+func (c *CoverageClient) CollectCoverageFromURL(coverageURL, testName string) error {
+	_, err := c.CollectCoverageFromURLWithFormat(coverageURL, testName)
+	return err
+}
+
+// CollectCoverageFromURLWithFormat collects coverage data from a direct URL (no port-forwarding).
 // Returns the detected coverage format (go, python, rust).
-func (c *CoverageClient) CollectCoverageFromURL(coverageURL, testName string) (CoverageFormat, error) {
+//
+// coverageURL may be http://host:port or http://host:port/coverage; bare host:port URLs are
+// normalized to /coverage. Other URL paths are rejected. When the server exposes a Python
+// /health endpoint with coverage_enabled, /coverage/save is triggered automatically when no
+// coverage files exist yet.
+func (c *CoverageClient) CollectCoverageFromURLWithFormat(coverageURL, testName string) (CoverageFormat, error) {
 	normalizedURL, err := normalizeCoverageURL(coverageURL)
 	if err != nil {
 		return "", fmt.Errorf("normalize coverage URL: %w", err)
@@ -850,7 +874,7 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) (C
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readHTTPErrorBody(resp.Body)
 		return "", fmt.Errorf("coverage endpoint returned %d: %s", resp.StatusCode, body)
 	}
 

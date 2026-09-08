@@ -318,6 +318,7 @@ func (p *CoverageProcessor) processPythonCoverage(ctx context.Context, opts Proc
 	return p.finishPythonCoverageReports(ctx, opts, pythonPath, absCoverageFile, absOutputFile, rcFile)
 }
 
+// finishPythonCoverageReports generates optional text and HTML reports after Cobertura XML conversion.
 func (p *CoverageProcessor) finishPythonCoverageReports(ctx context.Context, opts ProcessOptions, pythonPath, absCoverageFile, absOutputFile, rcFile string) error {
 	// Optionally generate text report for summary
 	textReportFile := strings.TrimSuffix(absOutputFile, filepath.Ext(absOutputFile)) + ".txt"
@@ -360,6 +361,7 @@ func (p *CoverageProcessor) finishPythonCoverageReports(ctx context.Context, opt
 	return nil
 }
 
+// isSQLiteCoverageFile reports whether data begins with the SQLite file magic header.
 func isSQLiteCoverageFile(data []byte) bool {
 	return len(data) >= len(sqliteMagic) && string(data[:len(sqliteMagic)]) == sqliteMagic
 }
@@ -387,7 +389,10 @@ func (p *CoverageProcessor) processSerializedPythonCoverage(ctx context.Context,
 		repoRoot = resolved
 	}
 
-	sqlitePath := filepath.Join(opts.InputDir, ".coverage.remapped")
+	sqlitePath, err := filepath.Abs(filepath.Join(opts.InputDir, ".coverage.remapped"))
+	if err != nil {
+		return "", fmt.Errorf("get absolute remapped coverage path: %w", err)
+	}
 	prefixesArg := strings.Join(pythonContainerPathPrefixes, "\n")
 
 	pythonScript := `
@@ -459,6 +464,7 @@ func (p *CoverageProcessor) createPythonCoverageRC(repoRoot string) (string, err
 	pathLines := make([]string, 0, len(pythonContainerPathPrefixes)+1)
 	pathLines = append(pathLines, fmt.Sprintf("    %s", repoRoot))
 	for _, prefix := range pythonContainerPathPrefixes {
+		// coverage.py path matching treats /app and /app/ equivalently; normalize for consistency.
 		pathLines = append(pathLines, fmt.Sprintf("    %s", strings.TrimSuffix(prefix, "/")))
 	}
 	rcContent := fmt.Sprintf("[paths]\nsource =\n%s\n", strings.Join(pathLines, "\n"))

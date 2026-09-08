@@ -258,7 +258,7 @@ func TestCollectCoverageFromURL(t *testing.T) {
 	}
 
 	// Test successful collection
-	_, err = client.CollectCoverageFromURL(server.URL, "test-case")
+	err = client.CollectCoverageFromURL(server.URL, "test-case")
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestCollectCoverageFromURL_ServerError(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL, "test-case")
+	err := client.CollectCoverageFromURL(server.URL, "test-case")
 	if err == nil {
 		t.Error("Expected error for server error response")
 	}
@@ -654,7 +654,7 @@ func TestCollectCoverageFromURL_IdentityHeaderWarning(t *testing.T) {
 			}
 
 			// Should succeed regardless of header presence
-			_, err := client.CollectCoverageFromURL(server.URL, "test-case")
+			err := client.CollectCoverageFromURL(server.URL, "test-case")
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 			}
@@ -791,7 +791,7 @@ func TestCollectRustCoverage(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -827,7 +827,7 @@ func TestCollectRustCoverage_CoverageDisabled(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
 	if err == nil {
 		t.Fatal("expected error when coverage is disabled")
 	}
@@ -855,7 +855,7 @@ func TestCollectRustCoverage_EmptyProfrawData(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
 	if err == nil {
 		t.Fatal("expected error for empty profraw data")
 	}
@@ -884,7 +884,7 @@ func TestCollectRustCoverage_InvalidBase64(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
 	if err == nil {
 		t.Fatal("expected error for invalid base64 data")
 	}
@@ -907,7 +907,7 @@ func TestCollectRustCoverage_InvalidJSON(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL, "rust-test")
+	err := client.CollectCoverageFromURL(server.URL, "rust-test")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON response")
 	}
@@ -944,7 +944,7 @@ func TestCollectRustCoverage_LargePayload(t *testing.T) {
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL, "large-test")
+	err := client.CollectCoverageFromURL(server.URL, "large-test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1057,7 +1057,7 @@ func TestCollectCoverageFromURL_SaveFailureWhenEmpty(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL+"/coverage", "python-test")
+	err := client.CollectCoverageFromURL(server.URL+"/coverage", "python-test")
 	if err == nil {
 		t.Fatal("expected error when save fails with zero coverage files")
 	}
@@ -1106,7 +1106,7 @@ func TestCollectCoverageFromURL_PythonSaveWhenEmpty(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	format, err := client.CollectCoverageFromURL(server.URL+"/coverage", "python-test")
+	format, err := client.CollectCoverageFromURLWithFormat(server.URL+"/coverage", "python-test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1155,7 +1155,7 @@ func TestCollectCoverageFromURL_NormalizesBareHostPort(t *testing.T) {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	_, err := client.CollectCoverageFromURL(server.URL, "go-test")
+	err := client.CollectCoverageFromURL(server.URL, "go-test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
