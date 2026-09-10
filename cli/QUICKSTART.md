@@ -2,7 +2,7 @@
 
 Get started with `coverport` in 5 minutes!
 
-> **New**: `coverport` now supports direct URL collection (`--url http://localhost:53700`) for local development, and uses a manifest-based workflow for simplified batch processing. See `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` for details.
+> **New**: `coverport` now supports direct URL collection (`--url http://localhost:53700/coverage`) for local development, and uses a manifest-based workflow for simplified batch processing. See `URL_COLLECTION.md` and `MANIFEST_WORKFLOW.md` for details.
 
 ## Prerequisites
 
@@ -135,18 +135,10 @@ open ./coverage-output/myapp/my-test-myapp/coverage.html
 
 ### Python
 
-**Pattern A (Kubernetes `collect`):** Cobertura XML is generated automatically inside the pod.
+For Python, `coverport collect` generates Cobertura XML automatically:
 
 ```bash
 # XML report (ready for Codecov upload)
-cat ./coverage-output/my-test/coverage.xml
-```
-
-**Pattern B (`collect --url`):** Serialized `.coverage` data is saved locally; generate XML on the host:
-
-```bash
-coverport collect --url http://localhost:53700 --test-name my-test --output ./coverage-output
-coverport process --format=python --coverage-dir=./coverage-output/my-test --output=./coverage-output/my-test/coverage.xml
 cat ./coverage-output/my-test/coverage.xml
 ```
 

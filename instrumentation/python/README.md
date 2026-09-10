@@ -80,9 +80,9 @@ coverport collect \
 # → coverage-output/e2e-tests/coverage.xml
 ```
 
-**Local `--url` (Pattern B):** `collect` saves `coverage-output/<test-name>/.coverage`. The file may
-be **serialized** `CoverageData.dumps()` bytes from the HTTP response or a SQLite database from
-the K8s collect path. Convert to Cobertura XML on the host with `coverport process --format=python`.
+**Local `--url` (Pattern B):** `collect` saves `coverage-output/<test-name>/.coverage`.
+The file contains **serialized** `CoverageData.dumps()` bytes from the HTTP response — not a
+SQLite database. Convert to Cobertura XML on the host with `coverport process --format=python`.
 
 > **URL format:** `--url` accepts `http://localhost:<port>` or `http://localhost:<port>/coverage`.
 > The CLI normalizes bare host:port URLs to `/coverage` and appends `?name=<test-name>`.
@@ -100,55 +100,20 @@ coverport collect \
 
 coverport process \
   --format=python \
-  --input=./coverage-output/e2e-tests \
-  --output=./coverage-output/e2e-tests/coverage.xml \
-  --repo-root=.
+  --coverage-dir=./coverage-output/e2e-tests \
+  --repo-url=https://github.com/org/repo \
+  --commit-sha=abc123 \
+  --upload=false
 # → coverage-output/e2e-tests/coverage.xml
 ```
 
-For manual conversion without the CLI, deserialize and remap container paths explicitly — `[paths]`
-in `.coveragerc` does not apply to `loads()` data:
+`coverport process --format=python` deserializes the `.coverage` file, remaps container paths
+(e.g. `/app/`) to your local repo root, and writes Cobertura XML. `[paths]` in `.coveragerc`
+does not apply to deserialized data — the CLI handles remapping for standard container prefixes.
 
-```bash
-pip install coverage
-python3 <<'PY'
-import os
-import coverage
-
-repo = os.path.abspath(".")
-# Must match container WORKDIR and .coveragerc `source` (default /app/)
-container_prefix = "/app/"
-raw_path = "coverage-output/e2e-tests/.coverage"
-xml_path = "coverage-output/e2e-tests/coverage.xml"
-sqlite_path = "coverage-output/e2e-tests/.coverage.local"
-
-raw = open(raw_path, "rb").read()
-data = coverage.CoverageData(no_disk=True)
-data.loads(raw)
-
-remapped = coverage.CoverageData(no_disk=True)
-for fn in data.measured_files():
-    local_fn = fn.replace(container_prefix, repo + "/")
-    lines = data.lines(fn)
-    if lines:
-        remapped.add_lines({local_fn: lines})
-    arcs = data.arcs(fn)
-    if arcs:
-        remapped.add_arcs({local_fn: arcs})
-
-db = coverage.CoverageData(basename=sqlite_path)
-db.update(remapped)
-db.write()
-
-cov = coverage.Coverage(data_file=sqlite_path)
-cov.load()
-cov.xml_report(outfile=xml_path)
-print(f"Wrote {xml_path}")
-PY
-```
-
-`coverport process --format=python` accepts both SQLite `.coverage` files and serialized
-`--url` output; container paths are remapped to the local repo root automatically.
+For manual conversion without the CLI, deserialize and remap container paths explicitly — see
+the [coverport-integration skill](../../.claude/skills/coverport-integration/SKILL.md) Pattern B
+(Python) section for a host-side `coverage.py` script.
 
 ## Configuration notes
 

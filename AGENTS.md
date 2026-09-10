@@ -29,7 +29,7 @@ cd test/e2e && COVERPORT_BIN=../../cli/coverport go test -v -timeout 25m ./...
 - CLI subcommands: `collect`, `discover`, `process` — all accept `--verbose` flag
 - Container images built via Konflux Tekton pipelines on push to `main`
 - Coverage uploaded to Codecov with `unit-tests` flag via OIDC
-- E2E language patterns: Go/Rust = Kind HTTP collect; Node = NYC filesystem process; Python = Kind HTTP collect (Pattern A) or local `--url` + `process --format=python` (Pattern B); pytest-cov = Pattern D (no container instrumentation)
+- E2E language patterns: Go/Rust = Kind HTTP collect; Node = NYC filesystem process; Python = pytest-cov (no coverport CLI)
 
 ## Don't
 

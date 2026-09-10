@@ -66,21 +66,14 @@
 1. POST `/coverage` → binary coverage data (covmeta + covcounters)
 2. `go tool covdata` converts to text/HTML reports locally
 
-**Python applications (Pattern A — Kubernetes `collect`):**
+**Python applications:**
 1. GET `/health` → auto-detects Python coverage server
 2. POST `/coverage/save` → triggers SIGHUP to Gunicorn (workers save coverage to `/dev/shm`)
 3. GET `/coverage` → base64-encoded combined coverage data
 4. `kubectl exec` runs `coverage xml` inside the pod to generate Cobertura XML
 5. XML is fetched from the pod and saved locally
 
-The K8s collect flow generates XML inside the target pod because the CoverPort CLI container does not include Python. This avoids adding Python dependencies to the CLI image while leveraging the Python runtime already present in the instrumented pod.
-
-**Python applications (Pattern B — `collect --url`):**
-1. GET `/health` → auto-detects Python coverage server; triggers `/coverage/save` when no files exist yet
-2. GET `/coverage` → serialized `CoverageData.dumps()` bytes saved locally as `.coverage`
-3. `coverport process --format=python` on the host converts serialized data to Cobertura XML, remapping container paths (e.g. `/app/`) to the local repo root
-
-Pattern B requires Python with `coverage` installed on the host running `process`, not in the CLI container image.
+The Python flow generates XML inside the target pod because the CoverPort CLI container does not include Python. This is by design — it avoids adding Python dependencies to the CLI image while leveraging the Python runtime already present in the instrumented pod.
 
 ## Components
 
