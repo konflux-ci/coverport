@@ -65,7 +65,7 @@ cd test/e2e
 COVERPORT_BIN=$(pwd)/../../cli/coverport-cover go test -v -timeout 25m ./...
 
 # Run locally
-./coverport collect --url http://localhost:53700/coverage --test-name=local --output=./coverage-output
+./coverport collect --url http://localhost:53700 --test-name=local --output=./coverage-output
 ./coverport discover --namespace=my-ns --images=quay.io/org/app:latest
 ./coverport process --input=./coverage-output --codecov-token=$TOKEN
 
@@ -84,7 +84,8 @@ cd cli && make docker-build
 - **Python**: Pattern D (`TestPythonPytestCov` — `pytest --cov` on
   `test/fixtures/python/`) and container HTTP collection (Patterns A/B) via
   `instrumentation/python/`; Kind + `collect` for container path, local
-  `collect --url` for Pattern B (see skill + COVERPORT-362 for CLI gaps).
+  `collect --url` for Pattern B; run `coverport process --format=python` to
+  generate Cobertura XML from serialized `.coverage` data.
 - Fixture rebuild/push instructions: `test/fixtures/README.md`.
 
 ## Design Choices

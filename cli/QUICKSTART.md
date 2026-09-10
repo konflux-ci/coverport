@@ -135,10 +135,18 @@ open ./coverage-output/myapp/my-test-myapp/coverage.html
 
 ### Python
 
-For Python, `coverport collect` generates Cobertura XML automatically:
+**Pattern A (Kubernetes `collect`):** Cobertura XML is generated automatically inside the pod.
 
 ```bash
 # XML report (ready for Codecov upload)
+cat ./coverage-output/my-test/coverage.xml
+```
+
+**Pattern B (`collect --url`):** Serialized `.coverage` data is saved locally; generate XML on the host:
+
+```bash
+coverport collect --url http://localhost:53700 --test-name my-test --output ./coverage-output
+coverport process --format=python --coverage-dir=./coverage-output/my-test --output=./coverage-output/my-test/coverage.xml
 cat ./coverage-output/my-test/coverage.xml
 ```
 

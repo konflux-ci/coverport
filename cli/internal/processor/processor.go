@@ -438,10 +438,12 @@ cov.xml_report(outfile=xml_path)
 	cmd := exec.CommandContext(ctx, pythonPath, "-c", pythonScript, repoRoot, prefixesArg, absCoverageFile, absOutputFile, sqlitePath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to convert serialized Python coverage to XML: %w\nOutput: %s", err, string(output))
+		_ = os.Remove(sqlitePath)
+		return "", fmt.Errorf("convert serialized Python coverage to XML: %w\nOutput: %s", err, string(output))
 	}
 
 	if _, err := os.Stat(absOutputFile); err != nil {
+		_ = os.Remove(sqlitePath)
 		return "", fmt.Errorf("coverage XML file was not created: %w", err)
 	}
 

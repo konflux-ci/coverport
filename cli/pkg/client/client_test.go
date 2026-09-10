@@ -959,42 +959,43 @@ func TestCollectRustCoverage_LargePayload(t *testing.T) {
 	}
 }
 
-func TestCoverageURLHelpers(t *testing.T) {
-	t.Run("normalize", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected string
-			wantErr  bool
-		}{
-			{input: "http://localhost:53700", expected: "http://localhost:53700/coverage"},
-			{input: "http://localhost:53700/coverage", expected: "http://localhost:53700/coverage"},
-			{input: "http://localhost:53700/coverage/", expected: "http://localhost:53700/coverage"},
-			{input: "http://localhost:53700/api/v1/coverage", wantErr: true},
-			{input: "http://localhost:53700/myapp/coverage", wantErr: true},
-			{input: "http://localhost:53700/myapp", wantErr: true},
-			{input: "localhost:53700", wantErr: true},
-		}
+func TestNormalizeCoverageURL(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+		wantErr  bool
+	}{
+		{input: "http://localhost:53700", expected: "http://localhost:53700/coverage"},
+		{input: "http://localhost:53700/coverage", expected: "http://localhost:53700/coverage"},
+		{input: "http://localhost:53700/coverage/", expected: "http://localhost:53700/coverage"},
+		{input: "http://localhost:53700/api/v1/coverage", wantErr: true},
+		{input: "http://localhost:53700/myapp/coverage", wantErr: true},
+		{input: "http://localhost:53700/myapp", wantErr: true},
+		{input: "localhost:53700", wantErr: true},
+	}
 
-		for _, tt := range tests {
-			t.Run(tt.input, func(t *testing.T) {
-				got, err := normalizeCoverageURL(tt.input)
-				if tt.wantErr {
-					if err == nil {
-						t.Fatal("expected error")
-					}
-					return
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := normalizeCoverageURL(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
 				}
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if got != tt.expected {
-					t.Errorf("normalizeCoverageURL() = %q, want %q", got, tt.expected)
-				}
-			})
-		}
-	})
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.expected {
+				t.Errorf("normalizeCoverageURL() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
 
+func TestCoverageEndpointURL(t *testing.T) {
 	coverageURL := "http://localhost:53700/coverage"
+
 	healthURL, err := coverageEndpointURL(coverageURL, "/health")
 	if err != nil {
 		t.Fatalf("coverageEndpointURL health: %v", err)
@@ -1010,7 +1011,9 @@ func TestCoverageURLHelpers(t *testing.T) {
 	if saveURL != "http://localhost:53700/coverage/save" {
 		t.Errorf("save URL = %q, want http://localhost:53700/coverage/save", saveURL)
 	}
+}
 
+func TestCheckCoverageHealthAtURL_NonOK(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		w.Write([]byte("bad gateway"))

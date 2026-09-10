@@ -52,7 +52,7 @@ RUSTFLAGS="-C instrument-coverage" LLVM_PROFILE_FILE=/dev/null cargo build --rel
 Use [coverport](../../cli/) to collect and process coverage from running applications:
 
 ```bash
-coverport collect --url http://localhost:53700/coverage --test-name e2e -o ./coverage-output
+coverport collect --url http://localhost:53700 --test-name e2e -o ./coverage-output
 
 COVERAGE_BINARY=./target/release/my-app coverport process \
     --coverage-dir=./coverage-output --format=rust --generate-html \

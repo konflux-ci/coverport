@@ -734,6 +734,14 @@ func TestProcessSerializedPythonCoverageDirect(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for invalid serialized coverage data")
 		}
+
+		remapped, err := filepath.Glob(filepath.Join(tmpDir, ".coverage.remapped-*"))
+		if err != nil {
+			t.Fatalf("glob remapped temp files: %v", err)
+		}
+		if len(remapped) > 0 {
+			t.Errorf("expected remapped temp files to be cleaned up on error, found: %v", remapped)
+		}
 	})
 }
 

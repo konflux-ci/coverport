@@ -28,7 +28,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       - name: Install coverage.py
-        run: python3 -m pip install coverage
+        run: python3 -m pip install coverage==7.6.1
 
       - name: Download dependencies
         working-directory: cli
