@@ -227,6 +227,10 @@ func TestCollectCoverageFromURL(t *testing.T) {
 
 	// Create test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/coverage" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if r.Method != http.MethodGet {
 			t.Errorf("Expected GET request, got %s", r.Method)
 		}
@@ -953,4 +957,236 @@ func TestCollectRustCoverage_LargePayload(t *testing.T) {
 	if info.Size() != int64(len(profrawContent)) {
 		t.Errorf("file size mismatch: got %d, want %d", info.Size(), len(profrawContent))
 	}
+}
+
+func TestNormalizeCoverageURL(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+		wantErr  bool
+	}{
+		{input: "http://localhost:53700", expected: "http://localhost:53700/coverage"},
+		{input: "http://localhost:53700/coverage", expected: "http://localhost:53700/coverage"},
+		{input: "http://localhost:53700/coverage/", expected: "http://localhost:53700/coverage"},
+		{input: "http://localhost:53700/api/v1/coverage", wantErr: true},
+		{input: "http://localhost:53700/myapp/coverage", wantErr: true},
+		{input: "http://localhost:53700/myapp", wantErr: true},
+		{input: "localhost:53700", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := normalizeCoverageURL(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.expected {
+				t.Errorf("normalizeCoverageURL() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCoverageEndpointURL(t *testing.T) {
+	coverageURL := "http://localhost:53700/coverage"
+
+	healthURL, err := coverageEndpointURL(coverageURL, "/health")
+	if err != nil {
+		t.Fatalf("coverageEndpointURL health: %v", err)
+	}
+	if healthURL != "http://localhost:53700/health" {
+		t.Errorf("health URL = %q, want http://localhost:53700/health", healthURL)
+	}
+
+	saveURL, err := coverageEndpointURL(coverageURL, "/coverage/save")
+	if err != nil {
+		t.Fatalf("coverageEndpointURL save: %v", err)
+	}
+	if saveURL != "http://localhost:53700/coverage/save" {
+		t.Errorf("save URL = %q, want http://localhost:53700/coverage/save", saveURL)
+	}
+}
+
+func TestCheckCoverageHealthAtURL_NonOK(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte("bad gateway"))
+	}))
+	defer server.Close()
+
+	client := &CoverageClient{
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+	}
+	if _, err := client.checkCoverageHealthAtURL(server.URL); err == nil {
+		t.Fatal("expected error for non-200 health response")
+	} else if !strings.Contains(err.Error(), "502") {
+		t.Errorf("expected status in error, got: %v", err)
+	}
+}
+
+func TestCollectCoverageFromURL_PythonPreflight(t *testing.T) {
+	coverageData := []byte("serialized-coverage-data")
+	response := PythonCoverageResponse{
+		Label:        "test",
+		CoverageData: base64.StdEncoding.EncodeToString(coverageData),
+	}
+
+	t.Run("save failure", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/health":
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(HealthResponse{
+					Status:          "ok",
+					CoverageEnabled: true,
+					CoverageFiles:   0,
+				})
+			case "/coverage/save":
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("save failed"))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer server.Close()
+
+		client := &CoverageClient{
+			outputDir:  t.TempDir(),
+			httpClient: &http.Client{Timeout: 10 * time.Second},
+		}
+
+		err := client.CollectCoverageFromURL(server.URL, "python-test")
+		if err == nil {
+			t.Fatal("expected error when save fails with zero coverage files")
+		}
+		if !strings.Contains(err.Error(), "trigger coverage save") {
+			t.Errorf("expected save failure error, got: %v", err)
+		}
+	})
+
+	t.Run("save then collect", func(t *testing.T) {
+		saveCalled := false
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/health":
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(HealthResponse{
+					Status:          "ok",
+					CoverageEnabled: true,
+					CoverageFiles:   0,
+				})
+			case "/coverage/save":
+				saveCalled = true
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(SaveResponse{Status: "ok", CoverageFiles: 1})
+			case "/coverage":
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer server.Close()
+
+		tempDir := t.TempDir()
+		client := &CoverageClient{
+			outputDir:  tempDir,
+			httpClient: &http.Client{Timeout: 10 * time.Second},
+		}
+
+		format, err := client.CollectCoverageFromURLWithFormat(server.URL, "python-test")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if format != FormatPython {
+			t.Errorf("expected FormatPython, got %q", format)
+		}
+		if !saveCalled {
+			t.Error("expected /coverage/save to be called when coverage_files == 0")
+		}
+
+		data, err := os.ReadFile(filepath.Join(tempDir, "python-test", ".coverage"))
+		if err != nil {
+			t.Fatalf("coverage file not created: %v", err)
+		}
+		if string(data) != string(coverageData) {
+			t.Errorf("coverage content mismatch: got %q, want %q", data, coverageData)
+		}
+	})
+
+	t.Run("skip save when files exist", func(t *testing.T) {
+		saveCalled := false
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/health":
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(HealthResponse{
+					Status:          "ok",
+					CoverageEnabled: true,
+					CoverageFiles:   2,
+				})
+			case "/coverage/save":
+				saveCalled = true
+				w.WriteHeader(http.StatusInternalServerError)
+			case "/coverage":
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer server.Close()
+
+		client := &CoverageClient{
+			outputDir:  t.TempDir(),
+			httpClient: &http.Client{Timeout: 10 * time.Second},
+		}
+
+		if _, err := client.CollectCoverageFromURLWithFormat(server.URL, "python-test"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if saveCalled {
+			t.Error("expected /coverage/save to be skipped when coverage_files > 0")
+		}
+	})
+
+	t.Run("normalizes bare host port", func(t *testing.T) {
+		var requestedPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestedPath = r.URL.Path
+			switch r.URL.Path {
+			case "/health":
+				w.WriteHeader(http.StatusNotFound)
+			case "/coverage":
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(CoverageResponse{
+					MetaFilename:     "covmeta.test",
+					MetaData:         base64.StdEncoding.EncodeToString([]byte("meta")),
+					CountersFilename: "covcounters.test",
+					CountersData:     base64.StdEncoding.EncodeToString([]byte("counters")),
+				})
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer server.Close()
+
+		client := &CoverageClient{
+			outputDir:  t.TempDir(),
+			httpClient: &http.Client{Timeout: 10 * time.Second},
+		}
+
+		if err := client.CollectCoverageFromURL(server.URL, "go-test"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if requestedPath != "/coverage" {
+			t.Errorf("expected request to /coverage, got %q", requestedPath)
+		}
+	})
 }

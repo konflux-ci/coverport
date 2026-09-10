@@ -553,9 +553,12 @@ func collectFromURL(ctx context.Context, verbose bool) {
 
 	// Collect coverage from URL
 	fmt.Printf("  Sending coverage collection request...\n")
-	if err := client.CollectCoverageFromURL(coverageURL, testName); err != nil {
+	detectedFormat, err := client.CollectCoverageFromURLWithFormat(coverageURL, testName)
+	if err != nil {
 		exitWithError("Failed to collect coverage from URL: %v", err)
 	}
+
+	manifestFormat := string(detectedFormat)
 
 	printSuccess("Coverage collected from URL")
 	fmt.Printf("  📂 Output: %s/%s\n", outputDir, testName)
@@ -565,7 +568,7 @@ func collectFromURL(ctx context.Context, verbose bool) {
 	collectionManifest := manifest.NewCollectionManifest(testName, manifest.CollectionParameters{
 		CoveragePort: 0, // Not applicable for URL collection
 		Filters:      filters,
-		Format:       "go",
+		Format:       manifestFormat,
 		Namespace:    "",
 	})
 

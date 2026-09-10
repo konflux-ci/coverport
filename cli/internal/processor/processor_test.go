@@ -1,8 +1,11 @@
 package processor
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -562,4 +565,224 @@ func TestCopyFile_SourceNotFound(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for nonexistent source")
 	}
+}
+
+func TestIsSQLiteCoverageFile(t *testing.T) {
+	if !isSQLiteCoverageFile([]byte(sqliteMagic + "rest")) {
+		t.Error("expected SQLite magic to be detected")
+	}
+	if isSQLiteCoverageFile([]byte("serialized coverage data")) {
+		t.Error("expected non-SQLite data to return false")
+	}
+}
+
+func TestProcessSerializedPythonCoverage(t *testing.T) {
+	pythonPath := requirePythonWithCoverage(t)
+
+	tests := []struct {
+		name          string
+		containerPath string
+		repoSubdir    string
+		filename      string
+		badPrefix     string
+		inputSubdir   string
+	}{
+		{
+			name:          "app prefix",
+			containerPath: "/app/src/main.py",
+			repoSubdir:    "src",
+			filename:      "main.py",
+			badPrefix:     "/app/",
+			inputSubdir:   "input",
+		},
+		{
+			name:          "src prefix",
+			containerPath: "/src/lib/util.py",
+			repoSubdir:    "lib",
+			filename:      "util.py",
+			badPrefix:     "/src/",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			repoRoot := filepath.Join(tmpDir, "repo")
+			srcDir := filepath.Join(repoRoot, tt.repoSubdir)
+			if err := os.MkdirAll(srcDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(srcDir, tt.filename), []byte("x=1\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			inputDir := tmpDir
+			if tt.inputSubdir != "" {
+				inputDir = filepath.Join(tmpDir, tt.inputSubdir)
+			}
+			coverageFile := writeSerializedCoverageFixture(t, pythonPath, inputDir, tt.containerPath, []int{1})
+
+			outputFile := filepath.Join(inputDir, "coverage.xml")
+			proc := NewCoverageProcessor(FormatPython)
+			if err := proc.Process(context.Background(), ProcessOptions{
+				Format:     FormatPython,
+				InputDir:   filepath.Dir(coverageFile),
+				OutputFile: outputFile,
+				RepoRoot:   repoRoot,
+			}); err != nil {
+				t.Fatalf("Process failed: %v", err)
+			}
+
+			xmlData, err := os.ReadFile(outputFile)
+			if err != nil {
+				t.Fatalf("coverage.xml not created: %v", err)
+			}
+			content := string(xmlData)
+			if strings.Contains(content, tt.badPrefix) {
+				t.Errorf("coverage.xml should not contain container prefix %q, got: %s", tt.badPrefix, content)
+			}
+			if !strings.Contains(content, tt.filename) {
+				t.Errorf("coverage.xml should contain %s, got: %s", tt.filename, content)
+			}
+		})
+	}
+
+	t.Run("generate HTML", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repoRoot := filepath.Join(tmpDir, "repo")
+		srcDir := filepath.Join(repoRoot, "src")
+		if err := os.MkdirAll(srcDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "main.py"), []byte("x=1\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		inputDir := filepath.Join(tmpDir, "input")
+		coverageFile := writeSerializedCoverageFixture(t, pythonPath, inputDir, "/app/src/main.py", []int{1})
+		outputFile := filepath.Join(inputDir, "coverage.xml")
+		proc := NewCoverageProcessor(FormatPython)
+		if err := proc.Process(context.Background(), ProcessOptions{
+			Format:       FormatPython,
+			InputDir:     filepath.Dir(coverageFile),
+			OutputFile:   outputFile,
+			RepoRoot:     repoRoot,
+			GenerateHTML: true,
+		}); err != nil {
+			t.Fatalf("Process failed: %v", err)
+		}
+
+		htmlIndex := filepath.Join(inputDir, "htmlcov", "index.html")
+		if _, err := os.Stat(htmlIndex); err != nil {
+			t.Fatalf("HTML report not generated at %s: %v", htmlIndex, err)
+		}
+	})
+}
+
+func TestProcessSerializedPythonCoverageDirect(t *testing.T) {
+	pythonPath := requirePythonWithCoverage(t)
+
+	t.Run("empty repo root uses cwd", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repoRoot := filepath.Join(tmpDir, "repo")
+		srcDir := filepath.Join(repoRoot, "src")
+		if err := os.MkdirAll(srcDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "main.py"), []byte("x=1\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		inputDir := filepath.Join(tmpDir, "input")
+		coverageFile := writeSerializedCoverageFixture(t, pythonPath, inputDir, "/app/src/main.py", []int{1})
+		outputFile := filepath.Join(inputDir, "coverage.xml")
+
+		t.Chdir(repoRoot)
+		proc := NewCoverageProcessor(FormatPython)
+		sqlitePath, err := proc.processSerializedPythonCoverage(context.Background(), ProcessOptions{
+			InputDir:   filepath.Dir(coverageFile),
+			OutputFile: outputFile,
+		}, coverageFile, outputFile, pythonPath)
+		if err != nil {
+			t.Fatalf("processSerializedPythonCoverage failed: %v", err)
+		}
+		defer os.Remove(sqlitePath)
+
+		content, err := os.ReadFile(outputFile)
+		if err != nil {
+			t.Fatalf("coverage.xml not created: %v", err)
+		}
+		if strings.Contains(string(content), "/app/") {
+			t.Errorf("expected remapped paths, got: %s", content)
+		}
+	})
+
+	t.Run("invalid serialized data", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		rawPath := filepath.Join(tmpDir, ".coverage")
+		if err := os.WriteFile(rawPath, []byte("not-valid-coverage-data"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		outputFile := filepath.Join(tmpDir, "coverage.xml")
+
+		proc := NewCoverageProcessor(FormatPython)
+		_, err := proc.processSerializedPythonCoverage(context.Background(), ProcessOptions{
+			InputDir:   tmpDir,
+			OutputFile: outputFile,
+			RepoRoot:   tmpDir,
+		}, rawPath, outputFile, pythonPath)
+		if err == nil {
+			t.Fatal("expected error for invalid serialized coverage data")
+		}
+
+		remapped, err := filepath.Glob(filepath.Join(tmpDir, ".coverage.remapped-*"))
+		if err != nil {
+			t.Fatalf("glob remapped temp files: %v", err)
+		}
+		if len(remapped) > 0 {
+			t.Errorf("expected remapped temp files to be cleaned up on error, found: %v", remapped)
+		}
+	})
+}
+
+func requirePythonWithCoverage(t *testing.T) string {
+	t.Helper()
+	pythonPath, err := exec.LookPath("python3")
+	if err != nil {
+		pythonPath, err = exec.LookPath("python")
+	}
+	if err != nil {
+		t.Skip("python not available")
+	}
+	if err := exec.Command(pythonPath, "-m", "coverage", "--version").Run(); err != nil {
+		t.Skip("coverage package not available")
+	}
+	return pythonPath
+}
+
+func writeSerializedCoverageFixture(t *testing.T, pythonPath, dir, filePath string, lines []int) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	linesJSON, err := json.Marshal(lines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createFixture := exec.Command(pythonPath, "-c", fmt.Sprintf(`
+import sys
+from coverage import CoverageData
+data = CoverageData(no_disk=True)
+data.add_lines({%q: %s})
+sys.stdout.buffer.write(data.dumps())
+`, filePath, string(linesJSON)))
+	fixtureData, err := createFixture.Output()
+	if err != nil {
+		t.Fatalf("failed to create serialized fixture: %v", err)
+	}
+	coverageFile := filepath.Join(dir, ".coverage")
+	if err := os.WriteFile(coverageFile, fixtureData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return coverageFile
 }

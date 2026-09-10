@@ -33,6 +33,13 @@ import (
 	"k8s.io/client-go/transport/spdy"
 )
 
+const maxHTTPErrorBodySize = 1 << 20 // 1 MiB cap for error response bodies
+
+// readHTTPErrorBody reads up to maxHTTPErrorBodySize bytes from an HTTP error response body.
+func readHTTPErrorBody(r io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(r, maxHTTPErrorBodySize))
+}
+
 // CoverageClient handles coverage collection from Kubernetes pods
 type CoverageClient struct {
 	clientset       kubernetes.Interface
@@ -59,7 +66,7 @@ type CoverageResponse struct {
 type PythonCoverageResponse struct {
 	Label         string `json:"label"`
 	Timestamp     string `json:"timestamp"`
-	CoverageData  string `json:"coverage_data"`  // base64 encoded .coverage SQLite data
+	CoverageData  string `json:"coverage_data"`  // base64 encoded serialized CoverageData (coverage.py dumps)
 	FilesCombined int    `json:"files_combined"` // Number of files combined (for multiprocess)
 	Message       string `json:"message"`        // Optional message
 }
@@ -260,7 +267,7 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 
 	// Check health to detect Python coverage and trigger save if needed
 	health, err := c.checkCoverageHealth(localPort)
-	isPython := err == nil && health.CoverageEnabled
+	isPython := err == nil && health.Status == "ok" && health.CoverageEnabled
 
 	if isPython {
 		fmt.Printf("  Detected Python coverage server\n")
@@ -280,7 +287,7 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 
 	// Collect coverage via HTTP
 	coverageURL := fmt.Sprintf("http://localhost:%d/coverage", localPort)
-	if err := c.collectCoverageFromURL(coverageURL, testName); err != nil {
+	if _, err := c.collectCoverageFromURL(coverageURL, testName); err != nil {
 		return fmt.Errorf("collect coverage: %w", err)
 	}
 
@@ -301,14 +308,70 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 	return nil
 }
 
+// normalizeCoverageURL ensures the URL points at the /coverage endpoint.
+// Accepted paths are empty (bare host:port) or /coverage; other paths return an error.
+func normalizeCoverageURL(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("URL must use http or https scheme (e.g. http://localhost:53700)")
+	}
+
+	path := strings.TrimSuffix(u.Path, "/")
+	switch path {
+	case "", "/coverage":
+		u.Path = "/coverage"
+	default:
+		return "", fmt.Errorf("unsupported coverage URL path %q: use http://host:port or http://host:port/coverage", path)
+	}
+
+	return u.String(), nil
+}
+
+// coverageBaseURL returns the scheme/host/port portion of a coverage server URL.
+func coverageBaseURL(coverageURL string) (*url.URL, error) {
+	u, err := url.Parse(coverageURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse URL: %w", err)
+	}
+
+	path := strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), "/coverage")
+	u.Path = path
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u, nil
+}
+
+// coverageEndpointURL derives a sibling endpoint URL from a coverage server URL.
+func coverageEndpointURL(coverageURL, path string) (string, error) {
+	base, err := coverageBaseURL(coverageURL)
+	if err != nil {
+		return "", err
+	}
+	base.Path = path
+	return base.String(), nil
+}
+
 // checkCoverageHealth checks the coverage server health endpoint to detect format
 func (c *CoverageClient) checkCoverageHealth(localPort int) (*HealthResponse, error) {
 	healthURL := fmt.Sprintf("http://localhost:%d/health", localPort)
+	return c.checkCoverageHealthAtURL(healthURL)
+}
+
+// checkCoverageHealthAtURL queries a coverage server's /health endpoint.
+func (c *CoverageClient) checkCoverageHealthAtURL(healthURL string) (*HealthResponse, error) {
 	resp, err := c.httpClient.Get(healthURL)
 	if err != nil {
 		return nil, fmt.Errorf("health check: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := readHTTPErrorBody(resp.Body)
+		return nil, fmt.Errorf("health check returned %d: %s", resp.StatusCode, body)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -326,11 +389,21 @@ func (c *CoverageClient) checkCoverageHealth(localPort int) (*HealthResponse, er
 // triggerPythonCoverageSave hits the /coverage/save endpoint to trigger SIGHUP
 func (c *CoverageClient) triggerPythonCoverageSave(localPort int) error {
 	saveURL := fmt.Sprintf("http://localhost:%d/coverage/save", localPort)
+	return c.triggerPythonCoverageSaveAtURL(saveURL)
+}
+
+// triggerPythonCoverageSaveAtURL hits /coverage/save at the given URL to flush worker coverage data.
+func (c *CoverageClient) triggerPythonCoverageSaveAtURL(saveURL string) error {
 	resp, err := c.httpClient.Get(saveURL)
 	if err != nil {
 		return fmt.Errorf("trigger save: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := readHTTPErrorBody(resp.Body)
+		return fmt.Errorf("save endpoint returned %d: %s", resp.StatusCode, body)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -481,9 +554,54 @@ print('XML_GENERATED:' + xml_path)
 	return nil
 }
 
-// CollectCoverageFromURL collects coverage data from a direct URL (no port-forwarding)
+// CollectCoverageFromURL collects coverage data from a direct URL (no port-forwarding).
+// See CollectCoverageFromURLWithFormat for URL normalization and Python pre-flight behavior.
 func (c *CoverageClient) CollectCoverageFromURL(coverageURL, testName string) error {
-	return c.collectCoverageFromURL(coverageURL, testName)
+	_, err := c.CollectCoverageFromURLWithFormat(coverageURL, testName)
+	return err
+}
+
+// CollectCoverageFromURLWithFormat collects coverage data from a direct URL (no port-forwarding).
+// Returns the detected coverage format (go, python, rust).
+//
+// coverageURL may be http://host:port or http://host:port/coverage; bare host:port URLs are
+// normalized to /coverage. Other URL paths are rejected. When the server exposes a Python
+// /health endpoint with coverage_enabled, /coverage/save is triggered automatically when no
+// coverage files exist yet.
+func (c *CoverageClient) CollectCoverageFromURLWithFormat(coverageURL, testName string) (CoverageFormat, error) {
+	normalizedURL, err := normalizeCoverageURL(coverageURL)
+	if err != nil {
+		return "", fmt.Errorf("normalize coverage URL: %w", err)
+	}
+	if normalizedURL != coverageURL {
+		fmt.Printf("  Normalized coverage URL: %s\n", normalizedURL)
+	}
+
+	healthURL, err := coverageEndpointURL(normalizedURL, "/health")
+	if err != nil {
+		return "", fmt.Errorf("derive health URL: %w", err)
+	}
+
+	health, err := c.checkCoverageHealthAtURL(healthURL)
+	if err == nil && health.Status == "ok" && health.CoverageEnabled {
+		fmt.Printf("  Detected Python coverage server\n")
+		if health.CoverageFiles == 0 {
+			fmt.Printf("  No coverage files yet, triggering save...\n")
+			saveURL, err := coverageEndpointURL(normalizedURL, "/coverage/save")
+			if err != nil {
+				return "", fmt.Errorf("derive save URL: %w", err)
+			}
+			// Unlike the K8s collect path, --url has no exec fallback to generate coverage
+			// inside the container, so a failed /coverage/save is a hard error.
+			if err := c.triggerPythonCoverageSaveAtURL(saveURL); err != nil {
+				return "", fmt.Errorf("trigger coverage save before collect: %w", err)
+			}
+		} else {
+			fmt.Printf("  Found %d existing coverage file(s)\n", health.CoverageFiles)
+		}
+	}
+
+	return c.collectCoverageFromURL(normalizedURL, testName)
 }
 
 // savePodMetadata retrieves pod information and saves it to metadata.json
@@ -728,20 +846,27 @@ func (c *CoverageClient) setupPortForward(podName string, targetPort int) (int, 
 	}
 }
 
-// collectCoverageFromURL collects coverage from the given URL
-// Automatically detects Go or Python coverage format
-func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) error {
-	// Try GET request first (Python uses GET with query param)
-	getURL := coverageURL + "?name=" + url.QueryEscape(testName)
+// collectCoverageFromURL collects coverage from the given URL.
+// Automatically detects Go, Python, or Rust coverage format.
+func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) (CoverageFormat, error) {
+	collectURL, err := url.Parse(coverageURL)
+	if err != nil {
+		return "", fmt.Errorf("parse coverage URL: %w", err)
+	}
+	query := collectURL.Query()
+	query.Set("name", testName)
+	collectURL.RawQuery = query.Encode()
+	getURL := collectURL.String()
+
 	resp, err := c.httpClient.Get(getURL)
 	if err != nil {
-		return fmt.Errorf("send coverage request: %w", err)
+		return "", fmt.Errorf("send coverage request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("coverage endpoint returned %d: %s", resp.StatusCode, body)
+		body, _ := readHTTPErrorBody(resp.Body)
+		return "", fmt.Errorf("coverage endpoint returned %d: %s", resp.StatusCode, body)
 	}
 
 	// Verify we're talking to a coverage server (v0.0.2+ sets this header)
@@ -752,7 +877,7 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 	// Read response body into buffer for format detection
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read response body: %w", err)
+		return "", fmt.Errorf("read response body: %w", err)
 	}
 
 	// Detect format based on response fields
@@ -761,13 +886,13 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) er
 
 	switch format {
 	case FormatPython:
-		return c.collectPythonCoverage(body, testName)
+		return FormatPython, c.collectPythonCoverage(body, testName)
 	case FormatRust:
-		return c.collectRustCoverage(body, testName)
+		return FormatRust, c.collectRustCoverage(body, testName)
 	case FormatGo:
-		return c.collectGoCoverage(body, testName)
+		return FormatGo, c.collectGoCoverage(body, testName)
 	default:
-		return fmt.Errorf("unsupported coverage format: %s", format)
+		return "", fmt.Errorf("unsupported coverage format: %s", format)
 	}
 }
 
