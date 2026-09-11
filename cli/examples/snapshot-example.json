@@ -2,7 +2,7 @@
   "components": [
     {
       "name": "frontend",
-      "containerImage": "quay.io/myorg/frontend@sha256:1234567890abcdef",
+      "containerImage": "quay.io/konflux-ci/frontend@sha256:1234567890abcdef",
       "source": {
         "git": {
           "url": "https://github.com/myorg/frontend",
@@ -12,7 +12,7 @@
     },
     {
       "name": "backend-api",
-      "containerImage": "quay.io/myorg/backend-api@sha256:abcdef1234567890",
+      "containerImage": "quay.io/konflux-ci/backend-api@sha256:abcdef1234567890",
       "source": {
         "git": {
           "url": "https://github.com/myorg/backend",
@@ -22,7 +22,7 @@
     },
     {
       "name": "worker",
-      "containerImage": "quay.io/myorg/worker@sha256:fedcba0987654321",
+      "containerImage": "quay.io/konflux-ci/worker@sha256:fedcba0987654321",
       "source": {
         "git": {
           "url": "https://github.com/myorg/worker",

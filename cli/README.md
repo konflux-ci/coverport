@@ -265,7 +265,7 @@ Add this task to your Tekton pipeline after running tests:
         value: $(params.SNAPSHOT)
     steps:
       - name: collect
-        image: quay.io/myorg/coverport:latest
+        image: quay.io/konflux-ci/coverport:latest
         env:
           - name: SNAPSHOT
             value: $(params.SNAPSHOT)
