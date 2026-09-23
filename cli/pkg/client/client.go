@@ -71,12 +71,21 @@ type PythonCoverageResponse struct {
 	Message       string `json:"message"`        // Optional message
 }
 
-// HealthResponse represents the Python coverage server health check response
+// NYCCoverageResponse matches the Node.js coverage server's Istanbul response format.
+type NYCCoverageResponse struct {
+	Label        string `json:"label"`
+	Timestamp    string `json:"timestamp"`
+	Format       string `json:"format"`
+	CoverageData string `json:"coverage_data"` // base64 encoded Istanbul JSON
+}
+
+// HealthResponse represents a coverage server health check response.
 type HealthResponse struct {
 	Status          string `json:"status"`
 	CoverageEnabled bool   `json:"coverage_enabled"`
 	DataDir         string `json:"data_dir"`
 	CoverageFiles   int    `json:"coverage_files"`
+	Format          string `json:"format"`
 }
 
 // SaveResponse represents the Python coverage server save trigger response
@@ -99,8 +108,8 @@ const (
 // RustCoverageResponse matches the Rust coverage server's response format
 type RustCoverageResponse struct {
 	ProfrawFilename string `json:"profraw_filename"`
-	ProfrawData     string `json:"profraw_data"`  // base64 encoded LLVM profraw data
-	ProfrawSize     int    `json:"profraw_size"`  // size in bytes before encoding
+	ProfrawData     string `json:"profraw_data"` // base64 encoded LLVM profraw data
+	ProfrawSize     int    `json:"profraw_size"` // size in bytes before encoding
 	Timestamp       uint64 `json:"timestamp"`
 	CoverageEnabled bool   `json:"coverage_enabled"`
 }
@@ -247,18 +256,26 @@ func (c *CoverageClient) GetPodNameWithContext(ctx context.Context, labelSelecto
 
 // CollectCoverageFromPod collects coverage data from a pod via port-forwarding
 func (c *CoverageClient) CollectCoverageFromPod(ctx context.Context, podName, testName string, targetPort int) error {
-	return c.CollectCoverageFromPodWithContainer(ctx, podName, "", testName, targetPort)
+	_, err := c.CollectCoverageFromPodWithContainerAndFormat(ctx, podName, "", testName, targetPort)
+	return err
 }
 
 // CollectCoverageFromPodWithContainer collects coverage data from a specific container in a pod via port-forwarding
 // If containerName is empty, it will try to detect the correct container automatically
 func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context, podName, containerName, testName string, targetPort int) error {
+	_, err := c.CollectCoverageFromPodWithContainerAndFormat(ctx, podName, containerName, testName, targetPort)
+	return err
+}
+
+// CollectCoverageFromPodWithContainerAndFormat collects coverage from a specific
+// container and returns the detected format.
+func (c *CoverageClient) CollectCoverageFromPodWithContainerAndFormat(ctx context.Context, podName, containerName, testName string, targetPort int) (CoverageFormat, error) {
 	fmt.Printf("Collecting coverage from pod %s for test: %s\n", podName, testName)
 
 	// Setup port forwarding
 	localPort, stopChan, err := c.setupPortForward(podName, targetPort)
 	if err != nil {
-		return fmt.Errorf("setup port forward: %w", err)
+		return "", fmt.Errorf("setup port forward: %w", err)
 	}
 	defer close(stopChan)
 
@@ -267,7 +284,8 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 
 	// Check health to detect Python coverage and trigger save if needed
 	health, err := c.checkCoverageHealth(localPort)
-	isPython := err == nil && health.Status == "ok" && health.CoverageEnabled
+	isPython := err == nil && health.Status == "ok" && health.CoverageEnabled &&
+		health.DataDir != "" && health.Format != "istanbul"
 
 	if isPython {
 		fmt.Printf("  Detected Python coverage server\n")
@@ -287,12 +305,13 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 
 	// Collect coverage via HTTP
 	coverageURL := fmt.Sprintf("http://localhost:%d/coverage", localPort)
-	if _, err := c.collectCoverageFromURL(coverageURL, testName); err != nil {
-		return fmt.Errorf("collect coverage: %w", err)
+	format, err := c.collectCoverageFromURL(coverageURL, testName)
+	if err != nil {
+		return "", fmt.Errorf("collect coverage: %w", err)
 	}
 
 	// For Python: generate Cobertura XML via exec into the pod
-	if isPython {
+	if format == FormatPython {
 		testDir := filepath.Join(c.outputDir, testName)
 		if err := c.generatePythonXMLInPod(ctx, podName, containerName, testDir); err != nil {
 			fmt.Printf("  Warning: Failed to generate XML in pod: %v\n", err)
@@ -305,7 +324,7 @@ func (c *CoverageClient) CollectCoverageFromPodWithContainer(ctx context.Context
 	}
 
 	fmt.Printf("Coverage collected successfully for test: %s\n", testName)
-	return nil
+	return format, nil
 }
 
 // normalizeCoverageURL ensures the URL points at the /coverage endpoint.
@@ -562,7 +581,7 @@ func (c *CoverageClient) CollectCoverageFromURL(coverageURL, testName string) er
 }
 
 // CollectCoverageFromURLWithFormat collects coverage data from a direct URL (no port-forwarding).
-// Returns the detected coverage format (go, python, rust).
+// Returns the detected coverage format (go, python, nyc, rust).
 //
 // coverageURL may be http://host:port or http://host:port/coverage; bare host:port URLs are
 // normalized to /coverage. Other URL paths are rejected. When the server exposes a Python
@@ -583,7 +602,8 @@ func (c *CoverageClient) CollectCoverageFromURLWithFormat(coverageURL, testName 
 	}
 
 	health, err := c.checkCoverageHealthAtURL(healthURL)
-	if err == nil && health.Status == "ok" && health.CoverageEnabled {
+	if err == nil && health.Status == "ok" && health.CoverageEnabled &&
+		health.DataDir != "" && health.Format != "istanbul" {
 		fmt.Printf("  Detected Python coverage server\n")
 		if health.CoverageFiles == 0 {
 			fmt.Printf("  No coverage files yet, triggering save...\n")
@@ -847,7 +867,7 @@ func (c *CoverageClient) setupPortForward(podName string, targetPort int) (int, 
 }
 
 // collectCoverageFromURL collects coverage from the given URL.
-// Automatically detects Go, Python, or Rust coverage format.
+// Automatically detects Go, Python, NYC/Istanbul, or Rust coverage format.
 func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) (CoverageFormat, error) {
 	collectURL, err := url.Parse(coverageURL)
 	if err != nil {
@@ -887,6 +907,8 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) (C
 	switch format {
 	case FormatPython:
 		return FormatPython, c.collectPythonCoverage(body, testName)
+	case FormatNYC:
+		return FormatNYC, c.collectNYCCoverage(body, testName)
 	case FormatRust:
 		return FormatRust, c.collectRustCoverage(body, testName)
 	case FormatGo:
@@ -898,6 +920,14 @@ func (c *CoverageClient) collectCoverageFromURL(coverageURL, testName string) (C
 
 // detectCoverageFormat detects the coverage format from the response body
 func (c *CoverageClient) detectCoverageFormat(body []byte) CoverageFormat {
+	// Node.js responses explicitly identify their base64 payload as Istanbul JSON.
+	var envelope struct {
+		Format string `json:"format"`
+	}
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Format == "istanbul" {
+		return FormatNYC
+	}
+
 	// Python responses contain "coverage_data" field
 	if bytes.Contains(body, []byte(`"coverage_data"`)) {
 		return FormatPython
@@ -912,6 +942,39 @@ func (c *CoverageClient) detectCoverageFormat(body []byte) CoverageFormat {
 	}
 	// Default to Go for backward compatibility
 	return FormatGo
+}
+
+// collectNYCCoverage handles Node.js Istanbul coverage format.
+func (c *CoverageClient) collectNYCCoverage(body []byte, testName string) error {
+	var resp NYCCoverageResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("decode NYC coverage response: %w", err)
+	}
+
+	if resp.CoverageData == "" {
+		return fmt.Errorf("no NYC coverage data received")
+	}
+
+	coverageData, err := base64.StdEncoding.DecodeString(resp.CoverageData)
+	if err != nil {
+		return fmt.Errorf("decode NYC coverage data: %w", err)
+	}
+	if !json.Valid(coverageData) {
+		return fmt.Errorf("decoded NYC coverage data is not valid JSON")
+	}
+
+	testDir := filepath.Join(c.outputDir, testName)
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		return fmt.Errorf("create test directory: %w", err)
+	}
+
+	coverageFile := filepath.Join(testDir, "coverage-final.json")
+	if err := os.WriteFile(coverageFile, coverageData, 0644); err != nil {
+		return fmt.Errorf("write NYC coverage file: %w", err)
+	}
+
+	fmt.Printf("  Saved: %s (%d bytes)\n", coverageFile, len(coverageData))
+	return nil
 }
 
 // collectPythonCoverage handles Python coverage format

@@ -436,8 +436,9 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 	// Collect coverage, trying each port in order
 	componentTestName := fmt.Sprintf("%s-%s", testName, podInfo.ComponentName)
 	var lastErr error
+	var detectedFormat coverageclient.CoverageFormat
 	for _, port := range ports {
-		lastErr = client.CollectCoverageFromPodWithContainer(ctx, podInfo.Name, podInfo.ContainerName, componentTestName, port)
+		detectedFormat, lastErr = client.CollectCoverageFromPodWithContainerAndFormat(ctx, podInfo.Name, podInfo.ContainerName, componentTestName, port)
 		if lastErr == nil {
 			break
 		}
@@ -452,7 +453,7 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 	// Note: Component metadata is now stored in the top-level manifest, not as separate files
 
 	// Process reports if enabled
-	if autoProcess && !skipGenerate {
+	if autoProcess && !skipGenerate && detectedFormat == coverageclient.FormatGo {
 		if verbose {
 			fmt.Printf("  📝 Processing coverage reports...\n")
 		}

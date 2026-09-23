@@ -767,6 +767,104 @@ func TestDetectCoverageFormat_Python(t *testing.T) {
 	}
 }
 
+func TestDetectCoverageFormat_NYC(t *testing.T) {
+	client := &CoverageClient{}
+
+	body := []byte(`{"coverage_data":"base64stuff", "format": "istanbul"}`)
+	format := client.detectCoverageFormat(body)
+	if format != FormatNYC {
+		t.Errorf("expected FormatNYC, got %q", format)
+	}
+}
+
+func TestCollectCoverageFromURL_NYC(t *testing.T) {
+	istanbulData := []byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}`)
+	response := NYCCoverageResponse{
+		Label:        "node-test",
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		Format:       "istanbul",
+		CoverageData: base64.StdEncoding.EncodeToString(istanbulData),
+	}
+
+	saveCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			json.NewEncoder(w).Encode(HealthResponse{
+				Status:          "ok",
+				CoverageEnabled: true,
+				Format:          "istanbul",
+			})
+		case "/coverage/save":
+			saveCalled = true
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/coverage":
+			json.NewEncoder(w).Encode(response)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	client := &CoverageClient{
+		outputDir:  tempDir,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+
+	format, err := client.CollectCoverageFromURLWithFormat(server.URL, "node-test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if format != FormatNYC {
+		t.Fatalf("expected FormatNYC, got %q", format)
+	}
+	if saveCalled {
+		t.Fatal("Node.js health response must not trigger /coverage/save")
+	}
+
+	coveragePath := filepath.Join(tempDir, "node-test", "coverage-final.json")
+	data, err := os.ReadFile(coveragePath)
+	if err != nil {
+		t.Fatalf("coverage-final.json was not created: %v", err)
+	}
+	if string(data) != string(istanbulData) {
+		t.Errorf("coverage content mismatch\nwant: %s\ngot:  %s", istanbulData, data)
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, "node-test", ".coverage")); !os.IsNotExist(err) {
+		t.Error("NYC collection unexpectedly created .coverage")
+	}
+}
+
+func TestCollectNYCCoverageErrors(t *testing.T) {
+	tests := []struct {
+		name         string
+		coverageData string
+		wantError    string
+	}{
+		{name: "empty data", wantError: "no NYC coverage data"},
+		{name: "invalid base64", coverageData: "not-base64!", wantError: "decode NYC coverage data"},
+		{name: "invalid JSON", coverageData: base64.StdEncoding.EncodeToString([]byte("not JSON")), wantError: "not valid JSON"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(NYCCoverageResponse{
+				Format:       "istanbul",
+				CoverageData: tt.coverageData,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &CoverageClient{outputDir: t.TempDir()}
+			err = client.collectNYCCoverage(body, "node-test")
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
+			}
+		})
+	}
+}
+
 func TestCollectRustCoverage(t *testing.T) {
 	profrawContent := []byte("fake profraw binary data for testing")
 	encodedData := base64.StdEncoding.EncodeToString(profrawContent)
@@ -1045,6 +1143,7 @@ func TestCollectCoverageFromURL_PythonPreflight(t *testing.T) {
 				json.NewEncoder(w).Encode(HealthResponse{
 					Status:          "ok",
 					CoverageEnabled: true,
+					DataDir:         "/tmp/coverage",
 					CoverageFiles:   0,
 				})
 			case "/coverage/save":
@@ -1079,6 +1178,7 @@ func TestCollectCoverageFromURL_PythonPreflight(t *testing.T) {
 				json.NewEncoder(w).Encode(HealthResponse{
 					Status:          "ok",
 					CoverageEnabled: true,
+					DataDir:         "/tmp/coverage",
 					CoverageFiles:   0,
 				})
 			case "/coverage/save":
@@ -1129,6 +1229,7 @@ func TestCollectCoverageFromURL_PythonPreflight(t *testing.T) {
 				json.NewEncoder(w).Encode(HealthResponse{
 					Status:          "ok",
 					CoverageEnabled: true,
+					DataDir:         "/tmp/coverage",
 					CoverageFiles:   2,
 				})
 			case "/coverage/save":

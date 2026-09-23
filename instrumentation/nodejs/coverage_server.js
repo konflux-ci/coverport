@@ -127,6 +127,7 @@ async function handleCoverageDump(req, res, label) {
         const payload = {
           label,
           timestamp: new Date().toISOString(),
+          format: 'istanbul',
           coverage_data: Buffer.from(JSON.stringify(istanbulCoverage)).toString('base64'),
         };
 
@@ -142,6 +143,7 @@ async function handleCoverageDump(req, res, label) {
         const payload = {
           label,
           timestamp: new Date().toISOString(),
+          format: 'istanbul',
           coverage_data: Buffer.from(JSON.stringify({})).toString('base64'),
         };
         const body = JSON.stringify(payload);
@@ -223,6 +225,7 @@ function handleHealth(req, res) {
   const payload = {
     status: 'ok',
     coverage_enabled: true,
+    format: 'istanbul',
   };
 
   const body = JSON.stringify(payload);

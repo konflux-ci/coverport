@@ -79,8 +79,8 @@ cd cli && make docker-build
 - **Go / Rust**: Kind pods + HTTP `collect`/`process`. Images:
   `quay.io/konflux-ci/konflux-devprod/coverport-testapp-{go,rust}`.
   Rust `process` extracts `/testapp` from the image and sets `COVERAGE_BINARY`.
-- **Node.js**: Pattern C only — `TestProcessNodejsFilesystem` (`process --format=nyc`);
-  no HTTP `collect` (format collides with Python). Uses `coverport-testapp-nodejs`.
+- **Node.js**: HTTP collection via `TestCollectNodejs` plus Pattern C through
+  `TestProcessNodejsFilesystem` (`process --format=nyc`). Uses `coverport-testapp-nodejs`.
 - **Python**: Pattern D (`TestPythonPytestCov` — `pytest --cov` on
   `test/fixtures/python/`) and container HTTP collection (Patterns A/B) via
   `instrumentation/python/`; Kind + `collect` for container path, local

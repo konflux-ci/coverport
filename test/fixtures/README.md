@@ -9,6 +9,7 @@ onboarding patterns.
 |----------|-------|--------------------|
 | Go | `quay.io/konflux-ci/konflux-devprod/coverport-testapp-go` | `go build -cover` + `instrumentation/go/coverage_server.go` |
 | Rust | `quay.io/konflux-ci/konflux-devprod/coverport-testapp-rust` | LLVM profraw + `instrumentation/rust/` crate |
+| Node.js | `quay.io/konflux-ci/konflux-devprod/coverport-testapp-nodejs` | V8 inspector + Istanbul JSON via `instrumentation/nodejs/coverage_server.js` |
 
 Each image exposes:
 - Port **8080** — app endpoint (`/hello?name=...`)
@@ -17,16 +18,14 @@ Each image exposes:
 Rust `process` also needs the instrumented binary from the image (`/testapp`).
 E2E extracts it with `docker/podman create` + `cp` and sets `COVERAGE_BINARY`.
 
-## Node.js (Pattern C — NYC filesystem process)
+## Node.js (HTTP collection and Pattern C)
 
-Node.js follows the coverport-integration skill's Pattern C: feed Istanbul/NYC
-JSON to `coverport process --format=nyc`. There is no supported
-`coverport collect` path for Node HTTP responses (format field collides with
-Python).
+Node.js supports HTTP collection through `coverport collect`, which writes the
+decoded Istanbul payload as `coverage-final.json`. Pattern C remains supported:
+feed existing Istanbul/NYC JSON to `coverport process --format=nyc`.
 
-The Kind image `coverport-testapp-nodejs` is only used by
-`TestProcessNodejsFilesystem` to obtain Istanbul JSON, write
-`coverage-final.json`, and run `process`.
+The Kind image `coverport-testapp-nodejs` is used by `TestCollectNodejs` for the
+HTTP path and by `TestProcessNodejsFilesystem` for Pattern C.
 
 ## Python (Pattern D — pytest-cov, no container)
 
@@ -54,7 +53,7 @@ cd /path/to/coverport
 podman build -f test/fixtures/go/Dockerfile -t quay.io/konflux-ci/konflux-devprod/coverport-testapp-go:latest .
 podman push quay.io/konflux-ci/konflux-devprod/coverport-testapp-go:latest
 
-# Node.js (Pattern C process test only)
+# Node.js
 podman build -f test/fixtures/nodejs/Dockerfile -t quay.io/konflux-ci/konflux-devprod/coverport-testapp-nodejs:latest .
 podman push quay.io/konflux-ci/konflux-devprod/coverport-testapp-nodejs:latest
 
