@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/konflux-ci/coverport/cli/internal/istanbul"
+
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
@@ -77,19 +79,6 @@ type NYCCoverageResponse struct {
 	Timestamp    string `json:"timestamp"`
 	Format       string `json:"format"`
 	CoverageData string `json:"coverage_data"` // base64 encoded Istanbul JSON
-}
-
-// istanbulFileCoverage contains the required fields for a single Istanbul
-// file-coverage entry. Empty maps are valid when a file has no executable
-// statements, but all maps must be present.
-type istanbulFileCoverage struct {
-	Path         string                     `json:"path"`
-	StatementMap map[string]json.RawMessage `json:"statementMap"`
-	FnMap        map[string]json.RawMessage `json:"fnMap"`
-	BranchMap    map[string]json.RawMessage `json:"branchMap"`
-	S            map[string]int             `json:"s"`
-	F            map[string]int             `json:"f"`
-	B            map[string][]int           `json:"b"`
 }
 
 // HealthResponse represents a coverage server health check response.
@@ -976,18 +965,19 @@ func (c *CoverageClient) collectNYCCoverage(body []byte, testName string) error 
 		return fmt.Errorf("decoded NYC coverage data is not valid JSON")
 	}
 
-	var coverageMap map[string]json.RawMessage
-	if err := json.Unmarshal(coverageData, &coverageMap); err != nil {
+	var rawCoverageMap map[string]json.RawMessage
+	if err := json.Unmarshal(coverageData, &rawCoverageMap); err != nil {
 		return fmt.Errorf("decoded NYC coverage data is not an Istanbul coverage map: %w", err)
 	}
-	if len(coverageMap) == 0 {
+	if len(rawCoverageMap) == 0 {
 		return fmt.Errorf("decoded NYC coverage data contains no file coverage")
 	}
-	for filePath, rawCoverage := range coverageMap {
-		var fileCoverage istanbulFileCoverage
-		if err := json.Unmarshal(rawCoverage, &fileCoverage); err != nil {
-			return fmt.Errorf("invalid Istanbul coverage for %q: %w", filePath, err)
-		}
+
+	coverageMap, err := istanbul.Decode(coverageData)
+	if err != nil {
+		return fmt.Errorf("invalid Istanbul coverage: %w", err)
+	}
+	for filePath, fileCoverage := range coverageMap {
 		if fileCoverage.Path == "" || fileCoverage.StatementMap == nil ||
 			fileCoverage.FnMap == nil || fileCoverage.BranchMap == nil ||
 			fileCoverage.S == nil || fileCoverage.F == nil || fileCoverage.B == nil {
