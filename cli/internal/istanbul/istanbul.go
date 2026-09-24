@@ -25,6 +25,34 @@ type Location struct {
 	End   Position `json:"end"`
 }
 
+// UnmarshalJSON rejects null or missing positions before converting the wire
+// representation to the value type used by the processor.
+func (l *Location) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Start *Position `json:"start"`
+		End   *Position `json:"end"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if wire.Start == nil {
+		return fmt.Errorf("start position is null or missing")
+	}
+	if wire.End == nil {
+		return fmt.Errorf("end position is null or missing")
+	}
+	if wire.Start.Line <= 0 || wire.End.Line <= 0 {
+		return fmt.Errorf("location line numbers must be positive")
+	}
+	if wire.Start.Column < 0 || wire.End.Column < 0 {
+		return fmt.Errorf("location columns must be non-negative")
+	}
+
+	l.Start = *wire.Start
+	l.End = *wire.End
+	return nil
+}
+
 // Position represents a line and column in a source file.
 type Position struct {
 	Line   int `json:"line"`
@@ -39,11 +67,68 @@ type FunctionInfo struct {
 	Line int      `json:"line"`
 }
 
+// UnmarshalJSON rejects null or missing function locations.
+func (f *FunctionInfo) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Name string    `json:"name"`
+		Decl *Location `json:"decl"`
+		Loc  *Location `json:"loc"`
+		Line int       `json:"line"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if wire.Decl == nil {
+		return fmt.Errorf("function declaration location is null or missing")
+	}
+	if wire.Loc == nil {
+		return fmt.Errorf("function location is null or missing")
+	}
+	if wire.Line <= 0 {
+		return fmt.Errorf("function line number must be positive")
+	}
+
+	f.Name = wire.Name
+	f.Decl = *wire.Decl
+	f.Loc = *wire.Loc
+	f.Line = wire.Line
+	return nil
+}
+
 // BranchInfo represents Istanbul branch coverage metadata.
 type BranchInfo struct {
 	Type      string     `json:"type"`
 	Locations []Location `json:"locations"`
 	Line      int        `json:"line"`
+}
+
+// UnmarshalJSON rejects null or missing branch locations.
+func (b *BranchInfo) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Type      string      `json:"type"`
+		Locations []*Location `json:"locations"`
+		Line      int         `json:"line"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if wire.Locations == nil {
+		return fmt.Errorf("branch locations are null or missing")
+	}
+	if wire.Line <= 0 {
+		return fmt.Errorf("branch line number must be positive")
+	}
+
+	b.Locations = make([]Location, len(wire.Locations))
+	for i, location := range wire.Locations {
+		if location == nil {
+			return fmt.Errorf("branch location %d is null", i)
+		}
+		b.Locations[i] = *location
+	}
+	b.Type = wire.Type
+	b.Line = wire.Line
+	return nil
 }
 
 // CoverageData maps source file paths to their coverage data.

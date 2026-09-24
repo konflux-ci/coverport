@@ -855,6 +855,9 @@ func TestCollectNYCCoverageErrors(t *testing.T) {
 		{name: "statement entry is array", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{"0":[]},"fnMap":{},"branchMap":{},"s":{"0":1},"f":{},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
 		{name: "function entry is scalar", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{"0":42},"branchMap":{},"s":{},"f":{"0":1},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
 		{name: "branch entry is null", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{"0":null},"s":{},"f":{},"b":{"0":[1,0]}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "statement start is null", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{"0":{"start":null,"end":{"line":1,"column":1}}},"fnMap":{},"branchMap":{},"s":{"0":1},"f":{},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "function location is null", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{"0":{"name":"main","decl":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"loc":null,"line":1}},"branchMap":{},"s":{},"f":{"0":1},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "branch location is null", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{"0":{"type":"if","locations":[null],"line":1}},"s":{},"f":{},"b":{"0":[1]}}}`)), wantError: "invalid Istanbul coverage"},
 		{name: "valid structure", coverageData: base64.StdEncoding.EncodeToString([]byte(validCoverage))},
 	}
 
