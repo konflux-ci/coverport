@@ -740,6 +740,10 @@ flags:
   # Uncomment when you add integration tests:
   # integration-tests:
   #   carryforward: true
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
 ```
 
 **Note on carryforward equivalence:** `flag_management.default_rules.carryforward: true`
@@ -747,11 +751,6 @@ and per-flag `carryforward: true` (under `flags:`) achieve the same effect for l
 The `flag_management` block is preferred because it automatically applies to any new flags
 added later, but if a repository already has `carryforward: true` on every individual flag,
 no additional `flag_management` block is needed — do not add a redundant one.
-
-comment:
-  layout: "reach,diff,flags,files"
-  behavior: default
-```
 
 ```
 **When to recommend ignore patterns:**
