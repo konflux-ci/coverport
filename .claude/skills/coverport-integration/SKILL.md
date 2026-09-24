@@ -1667,6 +1667,15 @@ permissions:
 Add flags for each test type with `carryforward: true`:
 
 ```yaml
+# Carry forward coverage from previous successful uploads when a flag's
+# report is missing (e.g. a CI test suite failed and skipped uploading).
+# This prevents patch coverage from dropping drastically due to incomplete data.
+# IMPORTANT: carryforward only works when uploads use Codecov flags
+# (e.g. flags: unit-tests in codecov-action, or --flag unit-tests in codecov-cli).
+flag_management:
+  default_rules:
+    carryforward: true
+
 flags:
   unit-tests:
     carryforward: true
@@ -1675,6 +1684,12 @@ flags:
   e2e-tests:
     carryforward: true
 ```
+
+**Note on carryforward equivalence:** `flag_management.default_rules.carryforward: true`
+and per-flag `carryforward: true` (under `flags:`) achieve the same effect for listed flags.
+The `flag_management` block is preferred for new configs because it auto-applies to future
+flags. If a repository already has `carryforward: true` on every individual flag, no
+additional `flag_management` block is needed — do not add a redundant one.
 
 ### Reference implementation
 

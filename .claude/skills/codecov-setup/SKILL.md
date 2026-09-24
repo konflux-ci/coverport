@@ -501,6 +501,7 @@ Real subagent errors observed in production runs.
 | Opened an MR when no CI config file was found for the declared CI system | Skip and add to manual-attention; don't open MRs for repos with no CI |
 | Added a placeholder upload job to a repo with no coverage-generating tests (e.g. pure HCL/Terraform) | Skip entirely — no upload job, no commit; flag as manual-attention |
 | Upload job fires on pipelines where the test job doesn't run (rules mismatch) | Narrow upload job rules to match the test job's trigger conditions; note in manual-attention |
+| Generated `.codecov.yml` without `flag_management.default_rules.carryforward: true` | Always include for new configs — prevents patch coverage drops when a CI job fails and skips uploading. Carryforward only works with flagged uploads (`-F unit-tests`); verify every upload step passes a flag. If the repo already has per-flag `carryforward: true` on every individual flag, that is equivalent — do not add a redundant `flag_management` block |
 
 ### Session Summary Format
 
