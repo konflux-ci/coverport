@@ -139,19 +139,8 @@ async function handleCoverageDump(req, res, label) {
         res.end(body);
       } catch (conversionError) {
         console.error(`${PRINT_PREFIX} Error converting coverage:`, conversionError);
-        // Fall back to empty coverage
-        const payload = {
-          label,
-          timestamp: new Date().toISOString(),
-          format: 'istanbul',
-          coverage_data: Buffer.from(JSON.stringify({})).toString('base64'),
-        };
-        const body = JSON.stringify(payload);
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-        });
-        res.end(body);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: conversionError.message }));
       }
     });
   } catch (error) {

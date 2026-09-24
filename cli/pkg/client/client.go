@@ -79,6 +79,19 @@ type NYCCoverageResponse struct {
 	CoverageData string `json:"coverage_data"` // base64 encoded Istanbul JSON
 }
 
+// istanbulFileCoverage contains the required fields for a single Istanbul
+// file-coverage entry. Empty maps are valid when a file has no executable
+// statements, but all maps must be present.
+type istanbulFileCoverage struct {
+	Path         string                     `json:"path"`
+	StatementMap map[string]json.RawMessage `json:"statementMap"`
+	FnMap        map[string]json.RawMessage `json:"fnMap"`
+	BranchMap    map[string]json.RawMessage `json:"branchMap"`
+	S            map[string]int             `json:"s"`
+	F            map[string]int             `json:"f"`
+	B            map[string][]int           `json:"b"`
+}
+
 // HealthResponse represents a coverage server health check response.
 type HealthResponse struct {
 	Status          string `json:"status"`
@@ -961,6 +974,25 @@ func (c *CoverageClient) collectNYCCoverage(body []byte, testName string) error 
 	}
 	if !json.Valid(coverageData) {
 		return fmt.Errorf("decoded NYC coverage data is not valid JSON")
+	}
+
+	var coverageMap map[string]json.RawMessage
+	if err := json.Unmarshal(coverageData, &coverageMap); err != nil {
+		return fmt.Errorf("decoded NYC coverage data is not an Istanbul coverage map: %w", err)
+	}
+	if len(coverageMap) == 0 {
+		return fmt.Errorf("decoded NYC coverage data contains no file coverage")
+	}
+	for filePath, rawCoverage := range coverageMap {
+		var fileCoverage istanbulFileCoverage
+		if err := json.Unmarshal(rawCoverage, &fileCoverage); err != nil {
+			return fmt.Errorf("invalid Istanbul coverage for %q: %w", filePath, err)
+		}
+		if fileCoverage.Path == "" || fileCoverage.StatementMap == nil ||
+			fileCoverage.FnMap == nil || fileCoverage.BranchMap == nil ||
+			fileCoverage.S == nil || fileCoverage.F == nil || fileCoverage.B == nil {
+			return fmt.Errorf("invalid Istanbul coverage for %q: missing required fields", filePath)
+		}
 	}
 
 	testDir := filepath.Join(c.outputDir, testName)

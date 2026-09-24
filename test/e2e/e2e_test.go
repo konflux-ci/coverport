@@ -332,6 +332,28 @@ func TestCollectRust(t *testing.T) {
 
 func TestCollectNodejs(t *testing.T) {
 	outputDir := collectFromLanguage(t, "nodejs", nodejsFixture)
+	metadataPath := filepath.Join(outputDir, "metadata.json")
+	metadataData, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatalf("metadata.json not found at %s: %v", metadataPath, err)
+	}
+	var metadata struct {
+		CollectionParams struct {
+			Format string `json:"format"`
+		} `json:"collection_params"`
+		Components []struct {
+			Format string `json:"format"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(metadataData, &metadata); err != nil {
+		t.Fatalf("invalid metadata.json: %v", err)
+	}
+	if metadata.CollectionParams.Format != "auto" {
+		t.Errorf("collection format = %q, want auto", metadata.CollectionParams.Format)
+	}
+	if len(metadata.Components) != 1 || metadata.Components[0].Format != "nyc" {
+		t.Fatalf("Node.js component format is not nyc: %s", metadataData)
+	}
 
 	testDir := filepath.Join(outputDir, "testapp-nodejs", "e2e-nodejs-testapp-nodejs")
 	coveragePath := filepath.Join(testDir, "coverage-final.json")

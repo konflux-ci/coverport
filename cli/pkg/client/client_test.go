@@ -837,6 +837,9 @@ func TestCollectCoverageFromURL_NYC(t *testing.T) {
 }
 
 func TestCollectNYCCoverageErrors(t *testing.T) {
+	validCoverage := `{` +
+		`"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}` +
+		`}`
 	tests := []struct {
 		name         string
 		coverageData string
@@ -845,6 +848,11 @@ func TestCollectNYCCoverageErrors(t *testing.T) {
 		{name: "empty data", wantError: "no NYC coverage data"},
 		{name: "invalid base64", coverageData: "not-base64!", wantError: "decode NYC coverage data"},
 		{name: "invalid JSON", coverageData: base64.StdEncoding.EncodeToString([]byte("not JSON")), wantError: "not valid JSON"},
+		{name: "empty coverage map", coverageData: base64.StdEncoding.EncodeToString([]byte(`{}`)), wantError: "contains no file coverage"},
+		{name: "coverage array", coverageData: base64.StdEncoding.EncodeToString([]byte(`[]`)), wantError: "not an Istanbul coverage map"},
+		{name: "missing required fields", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js"}}`)), wantError: "missing required fields"},
+		{name: "invalid counter map", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":[],"f":{},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "valid structure", coverageData: base64.StdEncoding.EncodeToString([]byte(validCoverage))},
 	}
 
 	for _, tt := range tests {
@@ -856,10 +864,20 @@ func TestCollectNYCCoverageErrors(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			client := &CoverageClient{outputDir: t.TempDir()}
+			outputDir := t.TempDir()
+			client := &CoverageClient{outputDir: outputDir}
 			err = client.collectNYCCoverage(body, "node-test")
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
+			}
+			if _, statErr := os.Stat(filepath.Join(outputDir, "node-test")); !os.IsNotExist(statErr) {
+				t.Errorf("invalid coverage created an output directory: %v", statErr)
 			}
 		})
 	}

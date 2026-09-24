@@ -239,7 +239,7 @@ func runCollect(cmd *cobra.Command, args []string) {
 	collectionManifest := manifest.NewCollectionManifest(testName, manifest.CollectionParameters{
 		CoveragePort: coveragePort,
 		Filters:      filters,
-		Format:       "go", // TODO: support auto-detection
+		Format:       "auto",
 		Namespace:    namespace,
 	})
 
@@ -473,6 +473,7 @@ func collectFromPod(ctx context.Context, restConfig *rest.Config, podInfo discov
 		Name:          podInfo.ComponentName,
 		Image:         podInfo.Image,
 		CoverageDir:   filepath.Join(podInfo.ComponentName, componentTestName),
+		Format:        string(detectedFormat),
 		Namespace:     podInfo.Namespace,
 		PodName:       podInfo.Name,
 		ContainerName: podInfo.ContainerName,
@@ -578,6 +579,7 @@ func collectFromURL(ctx context.Context, verbose bool) {
 		Name:        componentName,
 		Image:       coverageURL, // Store the URL in the image field for reference
 		CoverageDir: testName,    // Store relative path, will be joined with coverageDir during processing
+		Format:      manifestFormat,
 		Namespace:   "",
 		PodName:     "",
 		CollectedAt: time.Now().Format(time.RFC3339),
