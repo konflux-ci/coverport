@@ -647,9 +647,17 @@ If you encounter any issues, let me know and I'll help troubleshoot!
 - Exclude files/directories that won't be covered by tests (prevents misleading low coverage)
 - Set coverage thresholds and status checks
 - Configure PR comment format and layout
-- Enable carryforward flags (useful when not all tests run on every commit)
+- Enable carryforward flags (prevents patch coverage drops when a CI job fails and skips uploading)
 - Configure how partial line coverage is counted
 - Prepare for additional flags (e.g., integration-tests, e2e-tests in future)
+
+**⚠️ Carryforward + flagged uploads:** The `flag_management.default_rules.carryforward: true`
+setting (and per-flag `carryforward: true`) only works when coverage uploads use Codecov flags.
+If your CI uploads coverage without a flag (e.g., missing `-F unit-tests` in the codecov-action
+or CLI), that upload is not associated with any flag and cannot be carried forward. **Always
+ensure every CI upload step passes `flags: unit-tests` (codecov-action) or `--flag unit-tests`
+(codecov-cli).** This was already configured in Step 5 — verify it's present before adding the
+codecov.yml.
 ```
 
 #### Why Coverage Percentages May Differ Between Tools
@@ -717,12 +725,28 @@ ignore:
   # - "cmd/tools/**"      # CLI tools not covered by unit tests
   # - "internal/legacy/**" # Legacy code being phased out
 
+# Carry forward coverage from previous successful uploads when a flag's
+# report is missing (e.g. a CI test suite failed and skipped uploading).
+# This prevents patch coverage from dropping drastically due to incomplete data.
+# IMPORTANT: carryforward only works when uploads use Codecov flags
+# (e.g. -F unit-tests, -F e2e-tests). Unflagged uploads are not carried forward.
+flag_management:
+  default_rules:
+    carryforward: true
+
 flags:
   unit-tests:
     carryforward: true
   # Uncomment when you add integration tests:
   # integration-tests:
   #   carryforward: true
+```
+
+**Note on carryforward equivalence:** `flag_management.default_rules.carryforward: true`
+and per-flag `carryforward: true` (under `flags:`) achieve the same effect for listed flags.
+The `flag_management` block is preferred because it automatically applies to any new flags
+added later, but if a repository already has `carryforward: true` on every individual flag,
+no additional `flag_management` block is needed — do not add a redundant one.
 
 comment:
   layout: "reach,diff,flags,files"
