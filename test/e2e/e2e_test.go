@@ -71,8 +71,7 @@ func fixtureImage(lang string) string {
 
 // Kind/HTTP coverport targets (container instrumentation).
 // Python: Pattern D (pytest-cov) — see TestPythonPytestCov.
-// Node.js: Pattern C (NYC filesystem process) — see TestProcessNodejsFilesystem
-// (collect does not support Node HTTP; format collides with Python).
+// Node.js supports both Kind/HTTP collect and Pattern C NYC filesystem process.
 var (
 	goFixture     = langFixture{image: fixtureImage("go"), format: "go"}
 	rustFixture   = langFixture{image: fixtureImage("rust"), format: "rust"}
@@ -166,7 +165,6 @@ func runCoverportExpectFail(t *testing.T, wantSubstr string, args ...string) (st
 	}
 	return stdout.String(), stderr.String()
 }
-
 
 func kubectl(t *testing.T, args ...string) string {
 	t.Helper()
@@ -332,7 +330,53 @@ func TestCollectRust(t *testing.T) {
 	collectFromLanguage(t, "rust", rustFixture)
 }
 
-func collectFromLanguage(t *testing.T, lang string, fixture langFixture) {
+func TestCollectNodejs(t *testing.T) {
+	outputDir := collectFromLanguage(t, "nodejs", nodejsFixture)
+	metadataPath := filepath.Join(outputDir, "metadata.json")
+	metadataData, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatalf("metadata.json not found at %s: %v", metadataPath, err)
+	}
+	var metadata struct {
+		CollectionParams struct {
+			Format string `json:"format"`
+		} `json:"collection_params"`
+		Components []struct {
+			Format string `json:"format"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(metadataData, &metadata); err != nil {
+		t.Fatalf("invalid metadata.json: %v", err)
+	}
+	if metadata.CollectionParams.Format != "auto" {
+		t.Errorf("collection format = %q, want auto", metadata.CollectionParams.Format)
+	}
+	if len(metadata.Components) != 1 || metadata.Components[0].Format != "nyc" {
+		t.Fatalf("Node.js component format is not nyc: %s", metadataData)
+	}
+
+	testDir := filepath.Join(outputDir, "testapp-nodejs", "e2e-nodejs-testapp-nodejs")
+	coveragePath := filepath.Join(testDir, "coverage-final.json")
+	data, err := os.ReadFile(coveragePath)
+	if err != nil {
+		t.Fatalf("coverage-final.json not found at %s: %v", coveragePath, err)
+	}
+	if !json.Valid(data) {
+		t.Fatalf("coverage-final.json is not valid JSON")
+	}
+	var coverage map[string]json.RawMessage
+	if err := json.Unmarshal(data, &coverage); err != nil {
+		t.Fatalf("failed to decode Istanbul coverage: %v", err)
+	}
+	if len(coverage) == 0 {
+		t.Fatal("coverage-final.json contains no file coverage")
+	}
+	if _, err := os.Stat(filepath.Join(testDir, ".coverage")); !os.IsNotExist(err) {
+		t.Fatal("Node.js collection unexpectedly produced .coverage")
+	}
+}
+
+func collectFromLanguage(t *testing.T, lang string, fixture langFixture) string {
 	t.Helper()
 	ns := fixtureNamespace("collect", lang)
 	createNamespace(t, ns)
@@ -373,6 +417,8 @@ func collectFromLanguage(t *testing.T, lang string, fixture langFixture) {
 	if !hasNonZeroFile {
 		t.Fatal("all collected files are empty")
 	}
+
+	return outputDir
 }
 
 func TestDiscover(t *testing.T) {
@@ -771,12 +817,12 @@ func coverageServerEndpoints(t *testing.T, lang string, fixture langFixture) {
 			t.Fatalf("expected 200 from /health, got %d", resp.StatusCode)
 		}
 		body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("failed to read /health response: %v", err)
-			}
-			if !strings.Contains(string(body), "healthy") {
-				t.Errorf("/health response does not contain 'healthy': %s", string(body))
-			}
+		if err != nil {
+			t.Fatalf("failed to read /health response: %v", err)
+		}
+		if !strings.Contains(string(body), "healthy") {
+			t.Errorf("/health response does not contain 'healthy': %s", string(body))
+		}
 	})
 
 	t.Run("coverage", func(t *testing.T) {
@@ -833,7 +879,7 @@ func TestProcessNodejsFilesystem(t *testing.T) {
 		t.Fatalf("failed to read coverage response body: %v", err)
 	}
 
-	// The envelope is {"label":"...","timestamp":"...","coverage_data":"<base64>"}
+	// The envelope includes format=istanbul and base64-encoded coverage_data.
 	var envelope struct {
 		CoverageData string `json:"coverage_data"`
 	}

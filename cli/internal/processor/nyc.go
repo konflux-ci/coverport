@@ -7,49 +7,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/konflux-ci/coverport/cli/internal/istanbul"
 )
 
-// NYCFileCoverage represents Istanbul/NYC coverage data for a single file
-type NYCFileCoverage struct {
-	Path           string                     `json:"path"`
-	StatementMap   map[string]NYCLocation     `json:"statementMap"`
-	FnMap          map[string]NYCFunctionInfo `json:"fnMap"`
-	BranchMap      map[string]NYCBranchInfo   `json:"branchMap"`
-	S              map[string]int             `json:"s"` // Statement counts
-	F              map[string]int             `json:"f"` // Function counts
-	B              map[string][]int           `json:"b"` // Branch counts
-	InputSourceMap json.RawMessage            `json:"inputSourceMap,omitempty"`
-}
+// NYCFileCoverage represents Istanbul/NYC coverage data for a single file.
+type NYCFileCoverage = istanbul.FileCoverage
 
-// NYCLocation represents a source location in Istanbul format
-type NYCLocation struct {
-	Start NYCPosition `json:"start"`
-	End   NYCPosition `json:"end"`
-}
+// NYCLocation represents a source location in Istanbul format.
+type NYCLocation = istanbul.Location
 
-// NYCPosition represents a position (line, column) in source
-type NYCPosition struct {
-	Line   int `json:"line"`
-	Column int `json:"column"`
-}
+// NYCPosition represents a position in an Istanbul source location.
+type NYCPosition = istanbul.Position
 
-// NYCFunctionInfo represents function information in Istanbul format
-type NYCFunctionInfo struct {
-	Name string      `json:"name"`
-	Decl NYCLocation `json:"decl"`
-	Loc  NYCLocation `json:"loc"`
-	Line int         `json:"line"`
-}
+// NYCFunctionInfo represents Istanbul function coverage metadata.
+type NYCFunctionInfo = istanbul.FunctionInfo
 
-// NYCBranchInfo represents branch information in Istanbul format
-type NYCBranchInfo struct {
-	Type      string        `json:"type"`
-	Locations []NYCLocation `json:"locations"`
-	Line      int           `json:"line"`
-}
+// NYCBranchInfo represents Istanbul branch coverage metadata.
+type NYCBranchInfo = istanbul.BranchInfo
 
-// NYCCoverageData is a map of file paths to their coverage data
-type NYCCoverageData map[string]*NYCFileCoverage
+// NYCCoverageData maps source paths to Istanbul file coverage.
+type NYCCoverageData = istanbul.CoverageData
 
 // processNYCCoverage processes NYC (Node.js/Istanbul) coverage data
 func (p *CoverageProcessor) processNYCCoverage(ctx context.Context, opts ProcessOptions) error {
@@ -160,8 +138,8 @@ func readNYCCoverage(filePath string) (NYCCoverageData, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	var coverageData NYCCoverageData
-	if err := json.Unmarshal(data, &coverageData); err != nil {
+	coverageData, err := istanbul.Decode(data)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 

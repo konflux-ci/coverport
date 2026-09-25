@@ -324,7 +324,7 @@ func TestReadNYCCoverage(t *testing.T) {
 	coverageData := NYCCoverageData{
 		"/app/src/index.js": &NYCFileCoverage{
 			Path: "/app/src/index.js",
-			StatementMap: map[string]NYCLocation{
+			StatementMap: map[string]*NYCLocation{
 				"0": {Start: NYCPosition{Line: 1, Column: 0}, End: NYCPosition{Line: 1, Column: 20}},
 			},
 			S: map[string]int{"0": 5},
@@ -490,14 +490,14 @@ func TestGenerateLCOV(t *testing.T) {
 	coverageData := NYCCoverageData{
 		"src/index.js": &NYCFileCoverage{
 			Path: "src/index.js",
-			StatementMap: map[string]NYCLocation{
+			StatementMap: map[string]*NYCLocation{
 				"0": {Start: NYCPosition{Line: 1, Column: 0}, End: NYCPosition{Line: 1, Column: 20}},
 				"1": {Start: NYCPosition{Line: 2, Column: 0}, End: NYCPosition{Line: 2, Column: 30}},
 			},
-			FnMap: map[string]NYCFunctionInfo{
+			FnMap: map[string]*NYCFunctionInfo{
 				"0": {Name: "main", Line: 1, Loc: NYCLocation{Start: NYCPosition{Line: 1, Column: 0}, End: NYCPosition{Line: 5, Column: 1}}},
 			},
-			BranchMap: map[string]NYCBranchInfo{},
+			BranchMap: map[string]*NYCBranchInfo{},
 			S:         map[string]int{"0": 3, "1": 0},
 			F:         map[string]int{"0": 1},
 			B:         map[string][]int{},
