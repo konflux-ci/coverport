@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -785,4 +786,60 @@ sys.stdout.buffer.write(data.dumps())
 		t.Fatal(err)
 	}
 	return coverageFile
+}
+
+func TestGenerateLCOVBranchCountsFollowTheirBranch(t *testing.T) {
+	// Twelve branches on lines 10, 20, ... with two locations each. Branch k
+	// has counts {k, 100+k}, so a count attached to the wrong branch shows.
+	branchMap := map[string]NYCBranchInfo{}
+	counts := map[string][]int{}
+	loc := NYCLocation{Start: NYCPosition{Line: 1}, End: NYCPosition{Line: 1}}
+	for k := 0; k < 12; k++ {
+		key := strconv.Itoa(k)
+		branchMap[key] = NYCBranchInfo{Type: "if", Line: (k + 1) * 10, Locations: []NYCLocation{loc, loc}}
+		counts[key] = []int{k, 100 + k}
+	}
+	coverageData := NYCCoverageData{
+		"src/app.js": &NYCFileCoverage{Path: "src/app.js", BranchMap: branchMap, B: counts},
+	}
+
+	var first string
+	// Go randomizes map iteration, so repeat to catch order-dependent output.
+	for run := 0; run < 20; run++ {
+		outputPath := filepath.Join(t.TempDir(), "coverage.lcov")
+		if err := generateLCOV(coverageData, outputPath); err != nil {
+			t.Fatalf("generateLCOV failed: %v", err)
+		}
+		data, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := string(data)
+
+		for k := 0; k < 12; k++ {
+			line := (k + 1) * 10
+			for i, want := range []int{k, 100 + k} {
+				entry := fmt.Sprintf("BRDA:%d,%d,%d,%d\n", line, k, i, want)
+				if !strings.Contains(content, entry) {
+					t.Fatalf("run %d: missing %q in:\n%s", run, entry, content)
+				}
+			}
+		}
+		if run == 0 {
+			first = content
+		} else if content != first {
+			t.Fatalf("run %d: output differs from the first run", run)
+		}
+	}
+}
+
+func TestSortedIstanbulKeys(t *testing.T) {
+	// Numeric keys sort by value, not as strings ("2" before "10"); any
+	// non-numeric key falls back to string order after them.
+	m := map[string]int{"b": 0, "10": 0, "a": 0, "2": 0, "0": 0}
+	got := sortedIstanbulKeys(m)
+	want := []string{"0", "2", "10", "a", "b"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("sortedIstanbulKeys = %v, want %v", got, want)
+	}
 }
