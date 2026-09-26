@@ -51,6 +51,7 @@ cd cli
 make build                    # produces ./coverport binary
 make test                     # go test -v ./...
 make lint                     # golangci-lint (install separately)
+make check-go-version         # Go version consistency across go.mod, Dockerfile, CI
 make dev-build                # build with -race
 
 # CI-equivalent (what GitHub Actions runs)
