@@ -337,9 +337,17 @@ def _repo_url(row, org):
 
 
 def _codecov_provider(row):
-    """Detect Codecov provider prefix from repo URL: /gl/ for GitLab, /gh/ for GitHub."""
+    """Detect Codecov provider prefix: /gl/ for GitLab, /gh/ for GitHub.
+
+    Prefer the URL column when present. When it is empty (fallback path in
+    `_repo_url`), also inspect CI System so GitLab rows still get a warning
+    instead of a silent GitHub URL.
+    """
     url = row.get("URL", "").strip().lower()
     if "gitlab" in url:
+        return "gl"
+    ci = (row.get("CI System") or "").strip().lower()
+    if "gitlab" in ci:
         return "gl"
     return "gh"
 
