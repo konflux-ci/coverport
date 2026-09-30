@@ -1449,7 +1449,7 @@ Common issues and solutions:
 **Python: Coverage files not written (readOnlyRootFilesystem pods):**
 - **Cause**: `TMPDIR` defaults to `/tmp` which may be read-only
 - **Solution**: Set both `COVERAGE_DATA_DIR=/dev/shm` and `TMPDIR=/dev/shm` in the Dockerfile.
-  `.coveragerc` must also set `data_file = /dev/shm/.coverage`
+  The vendored `.coveragerc` already follows it (`data_file = ${COVERAGE_DATA_DIR-/dev/shm}/.coverage`); do not hardcode a path there.
 
 **Python: `sitecustomize` not loading in Gunicorn workers:**
 - **Cause**: `sitecustomize.py` is on `PYTHONPATH` but not in site-packages

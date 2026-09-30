@@ -10,7 +10,7 @@ for the coverport CLI (`COVERAGE_PORT` env var overrides).
 |------|---------|
 | `coverage_server.py` | Wrapper: starts HTTP server, runs app via Gunicorn |
 | `sitecustomize.py` | Auto-starts `coverage.process_startup()` in every process |
-| `.coveragerc` | Multiprocess config; writes to `/dev/shm` |
+| `.coveragerc` | Multiprocess config; writes to `$COVERAGE_DATA_DIR` (default `/dev/shm`) |
 | `gunicorn_coverage.py` | Gunicorn hooks — `worker_exit` saves worker coverage |
 
 Copy all four into your application repo (e.g. `server/`) and reference them from your
