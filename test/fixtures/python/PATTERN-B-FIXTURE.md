@@ -15,7 +15,7 @@ Pattern B has **no in-repo fixture image** and is **not covered by
 | Pattern | Coverage | Fixture |
 |---------|----------|---------|
 | D (pytest-cov) | `TestPythonPytestCov` | `test/fixtures/python/` (app.py, test_app.py) |
-| A (Kind HTTP) | Container e2e tests | `instrumentation/python/` vendored into Kind pod |
+| A (Kind HTTP) | **None** (instrumentation files exist but no fixture image or e2e test) | `instrumentation/python/` (server files only, no test image) |
 | B (local `--url`) | **None** | **None** |
 
 Pattern B was validated manually against an external application (not
@@ -67,8 +67,8 @@ directory (or add a sibling) with:
 
 ## Related references
 
-- `instrumentation/python/README.md` -- Dockerfile template and local
+- [instrumentation/python/README.md](../../../instrumentation/python/README.md) -- Dockerfile template and local
   validation steps
-- `CLAUDE.md` -- Pattern B CLI support description
-- `.claude/skills/coverport-integration/SKILL.md` -- Pattern B (Python)
+- [CLAUDE.md](../../../CLAUDE.md) -- Pattern B CLI support description
+- [.claude/skills/coverport-integration/SKILL.md](../../../.claude/skills/coverport-integration/SKILL.md) -- Pattern B (Python)
   onboarding workflow (Steps 3-5 Python, Pattern B section)
