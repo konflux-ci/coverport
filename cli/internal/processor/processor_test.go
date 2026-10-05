@@ -644,8 +644,93 @@ func TestProcessSerializedPythonCoverage(t *testing.T) {
 			if !strings.Contains(content, tt.filename) {
 				t.Errorf("coverage.xml should contain %s, got: %s", tt.filename, content)
 			}
+			// Codecov maps files via <source> + a repo-relative filename. An absolute
+			// workspace path with an empty <source> cannot be matched to the repository.
+			if strings.Contains(content, "<source></source>") {
+				t.Errorf("coverage.xml should declare a source root, got: %s", content)
+			}
+			wantFilename := fmt.Sprintf("filename=%q", filepath.Join(tt.repoSubdir, tt.filename))
+			if !strings.Contains(content, wantFilename) {
+				t.Errorf("coverage.xml should use repo-relative %s, got: %s", wantFilename, content)
+			}
 		})
 	}
+
+	t.Run("branch coverage data", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repoRoot := filepath.Join(tmpDir, "repo")
+		srcDir := filepath.Join(repoRoot, "src")
+		if err := os.MkdirAll(srcDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "main.py"), []byte("x = 1\nif x:\n    x = 2\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		inputDir := filepath.Join(tmpDir, "input")
+		coverageFile := writeSerializedArcsCoverageFixture(t, pythonPath, inputDir, "/app/src/main.py")
+		outputFile := filepath.Join(inputDir, "coverage.xml")
+		proc := NewCoverageProcessor(FormatPython)
+		if err := proc.Process(context.Background(), ProcessOptions{
+			Format:     FormatPython,
+			InputDir:   filepath.Dir(coverageFile),
+			OutputFile: outputFile,
+			RepoRoot:   repoRoot,
+		}); err != nil {
+			t.Fatalf("Process failed: %v", err)
+		}
+
+		xmlData, err := os.ReadFile(outputFile)
+		if err != nil {
+			t.Fatalf("coverage.xml not created: %v", err)
+		}
+		content := string(xmlData)
+		if strings.Contains(content, "/app/") {
+			t.Errorf("coverage.xml should not contain container prefix, got: %s", content)
+		}
+		if !strings.Contains(content, "main.py") {
+			t.Errorf("coverage.xml should contain main.py, got: %s", content)
+		}
+	})
+
+	t.Run("read-only input dir", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("running as root bypasses directory permissions")
+		}
+		tmpDir := t.TempDir()
+		repoRoot := filepath.Join(tmpDir, "repo")
+		srcDir := filepath.Join(repoRoot, "src")
+		if err := os.MkdirAll(srcDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "main.py"), []byte("x=1\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		inputDir := filepath.Join(tmpDir, "input")
+		writeSerializedCoverageFixture(t, pythonPath, inputDir, "/app/src/main.py", []int{1})
+		outputDir := filepath.Join(tmpDir, "out")
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Mimic `collect` running in a container: the collected directory is owned by the
+		// container user, so the user running `process` cannot write into it.
+		if err := os.Chmod(inputDir, 0555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(inputDir, 0755) })
+
+		proc := NewCoverageProcessor(FormatPython)
+		if err := proc.Process(context.Background(), ProcessOptions{
+			Format:     FormatPython,
+			InputDir:   inputDir,
+			OutputFile: filepath.Join(outputDir, "coverage.xml"),
+			RepoRoot:   repoRoot,
+		}); err != nil {
+			t.Fatalf("Process failed on read-only input dir: %v", err)
+		}
+	})
 
 	t.Run("generate HTML", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -779,6 +864,31 @@ sys.stdout.buffer.write(data.dumps())
 	fixtureData, err := createFixture.Output()
 	if err != nil {
 		t.Fatalf("failed to create serialized fixture: %v", err)
+	}
+	coverageFile := filepath.Join(dir, ".coverage")
+	if err := os.WriteFile(coverageFile, fixtureData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return coverageFile
+}
+
+// writeSerializedArcsCoverageFixture builds branch (arc) measurements rather than plain
+// line measurements, exercising the has_arcs() path of the serialized Python converter.
+func writeSerializedArcsCoverageFixture(t *testing.T, pythonPath, dir, filePath string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	createFixture := exec.Command(pythonPath, "-c", fmt.Sprintf(`
+import sys
+from coverage import CoverageData
+data = CoverageData(no_disk=True)
+data.add_arcs({%q: [(-1, 1), (1, 2), (2, 3), (3, -1)]})
+sys.stdout.buffer.write(data.dumps())
+`, filePath))
+	fixtureData, err := createFixture.Output()
+	if err != nil {
+		t.Fatalf("failed to create serialized arcs fixture: %v", err)
 	}
 	coverageFile := filepath.Join(dir, ".coverage")
 	if err := os.WriteFile(coverageFile, fixtureData, 0644); err != nil {

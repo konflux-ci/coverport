@@ -41,6 +41,11 @@ test/fixtures/python/
 
 Covered by `TestPythonPytestCov` in `test/e2e`.
 
+Pattern B (`collect --url` → `process --format=python`) has **no in-repo fixture** and
+is not covered by `test/e2e`. See
+[python/PATTERN-B-FIXTURE.md](python/PATTERN-B-FIXTURE.md) for the gaps in the external
+fixture used to validate it manually, and what an in-repo fixture would need.
+
 ## Building and pushing (container fixtures)
 
 All builds must run from the **repo root** since Dockerfiles reference both
