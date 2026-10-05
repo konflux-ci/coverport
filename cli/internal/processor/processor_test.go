@@ -787,6 +787,7 @@ func TestProcessSerializedPythonCoverageDirect(t *testing.T) {
 		sqlitePath, err := proc.processSerializedPythonCoverage(context.Background(), ProcessOptions{
 			InputDir:   filepath.Dir(coverageFile),
 			OutputFile: outputFile,
+			TempDir:    tmpDir,
 		}, coverageFile, outputFile, pythonPath)
 		if err != nil {
 			t.Fatalf("processSerializedPythonCoverage failed: %v", err)

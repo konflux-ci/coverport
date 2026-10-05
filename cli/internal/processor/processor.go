@@ -38,7 +38,7 @@ type ProcessOptions struct {
 	RepoRoot     string   // Repository root for path mapping
 	Filters      []string // File patterns to exclude
 	GenerateHTML bool     // Generate HTML coverage report
-	TempDir      string   // Directory for temporary files; empty means system default
+	TempDir      string   // Directory for temporary files
 }
 
 // NewCoverageProcessor creates a new coverage processor
