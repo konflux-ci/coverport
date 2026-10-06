@@ -767,6 +767,128 @@ func TestDetectCoverageFormat_Python(t *testing.T) {
 	}
 }
 
+func TestDetectCoverageFormat_NYC(t *testing.T) {
+	client := &CoverageClient{}
+
+	body := []byte(`{"coverage_data":"base64stuff", "format": "istanbul"}`)
+	format := client.detectCoverageFormat(body)
+	if format != FormatNYC {
+		t.Errorf("expected FormatNYC, got %q", format)
+	}
+}
+
+func TestCollectCoverageFromURL_NYC(t *testing.T) {
+	istanbulData := []byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}}`)
+	response := NYCCoverageResponse{
+		Label:        "node-test",
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		Format:       "istanbul",
+		CoverageData: base64.StdEncoding.EncodeToString(istanbulData),
+	}
+
+	saveCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			json.NewEncoder(w).Encode(HealthResponse{
+				Status:          "ok",
+				CoverageEnabled: true,
+				Format:          "istanbul",
+			})
+		case "/coverage/save":
+			saveCalled = true
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/coverage":
+			json.NewEncoder(w).Encode(response)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	client := &CoverageClient{
+		outputDir:  tempDir,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+
+	format, err := client.CollectCoverageFromURLWithFormat(server.URL, "node-test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if format != FormatNYC {
+		t.Fatalf("expected FormatNYC, got %q", format)
+	}
+	if saveCalled {
+		t.Fatal("Node.js health response must not trigger /coverage/save")
+	}
+
+	coveragePath := filepath.Join(tempDir, "node-test", "coverage-final.json")
+	data, err := os.ReadFile(coveragePath)
+	if err != nil {
+		t.Fatalf("coverage-final.json was not created: %v", err)
+	}
+	if string(data) != string(istanbulData) {
+		t.Errorf("coverage content mismatch\nwant: %s\ngot:  %s", istanbulData, data)
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, "node-test", ".coverage")); !os.IsNotExist(err) {
+		t.Error("NYC collection unexpectedly created .coverage")
+	}
+}
+
+func TestCollectNYCCoverageErrors(t *testing.T) {
+	validCoverage := `{` +
+		`"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":{},"f":{},"b":{}}` +
+		`}`
+	tests := []struct {
+		name         string
+		coverageData string
+		wantError    string
+	}{
+		{name: "empty data", wantError: "no NYC coverage data"},
+		{name: "invalid base64", coverageData: "not-base64!", wantError: "decode NYC coverage data"},
+		{name: "invalid JSON", coverageData: base64.StdEncoding.EncodeToString([]byte("not JSON")), wantError: "not valid JSON"},
+		{name: "empty coverage map", coverageData: base64.StdEncoding.EncodeToString([]byte(`{}`)), wantError: "contains no file coverage"},
+		{name: "coverage array", coverageData: base64.StdEncoding.EncodeToString([]byte(`[]`)), wantError: "not an Istanbul coverage map"},
+		{name: "missing required fields", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js"}}`)), wantError: "missing required fields"},
+		{name: "invalid counter map", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{},"s":[],"f":{},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "statement entry is array", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{"0":[]},"fnMap":{},"branchMap":{},"s":{"0":1},"f":{},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "function entry is scalar", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{"0":42},"branchMap":{},"s":{},"f":{"0":1},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "branch entry is null", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{"0":null},"s":{},"f":{},"b":{"0":[1,0]}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "statement start is null", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{"0":{"start":null,"end":{"line":1,"column":1}}},"fnMap":{},"branchMap":{},"s":{"0":1},"f":{},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "function location is null", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{"0":{"name":"main","decl":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"loc":null,"line":1}},"branchMap":{},"s":{},"f":{"0":1},"b":{}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "branch location is null", coverageData: base64.StdEncoding.EncodeToString([]byte(`{"/app/app.js":{"path":"/app/app.js","statementMap":{},"fnMap":{},"branchMap":{"0":{"type":"if","locations":[null],"line":1}},"s":{},"f":{},"b":{"0":[1]}}}`)), wantError: "invalid Istanbul coverage"},
+		{name: "valid structure", coverageData: base64.StdEncoding.EncodeToString([]byte(validCoverage))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(NYCCoverageResponse{
+				Format:       "istanbul",
+				CoverageData: tt.coverageData,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			outputDir := t.TempDir()
+			client := &CoverageClient{outputDir: outputDir}
+			err = client.collectNYCCoverage(body, "node-test")
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
+			}
+			if _, statErr := os.Stat(filepath.Join(outputDir, "node-test")); !os.IsNotExist(statErr) {
+				t.Errorf("invalid coverage created an output directory: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestCollectRustCoverage(t *testing.T) {
 	profrawContent := []byte("fake profraw binary data for testing")
 	encodedData := base64.StdEncoding.EncodeToString(profrawContent)
@@ -1045,6 +1167,7 @@ func TestCollectCoverageFromURL_PythonPreflight(t *testing.T) {
 				json.NewEncoder(w).Encode(HealthResponse{
 					Status:          "ok",
 					CoverageEnabled: true,
+					DataDir:         "/tmp/coverage",
 					CoverageFiles:   0,
 				})
 			case "/coverage/save":
@@ -1079,6 +1202,7 @@ func TestCollectCoverageFromURL_PythonPreflight(t *testing.T) {
 				json.NewEncoder(w).Encode(HealthResponse{
 					Status:          "ok",
 					CoverageEnabled: true,
+					DataDir:         "/tmp/coverage",
 					CoverageFiles:   0,
 				})
 			case "/coverage/save":
@@ -1129,6 +1253,7 @@ func TestCollectCoverageFromURL_PythonPreflight(t *testing.T) {
 				json.NewEncoder(w).Encode(HealthResponse{
 					Status:          "ok",
 					CoverageEnabled: true,
+					DataDir:         "/tmp/coverage",
 					CoverageFiles:   2,
 				})
 			case "/coverage/save":

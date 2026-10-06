@@ -33,6 +33,7 @@ type ComponentInfo struct {
 	Name          string `json:"name"`
 	Image         string `json:"image"`
 	CoverageDir   string `json:"coverage_dir"`
+	Format        string `json:"format,omitempty"`
 	Namespace     string `json:"namespace,omitempty"`
 	PodName       string `json:"pod_name,omitempty"`
 	ContainerName string `json:"container_name,omitempty"`

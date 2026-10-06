@@ -389,7 +389,10 @@ func (p *CoverageProcessor) processSerializedPythonCoverage(ctx context.Context,
 		repoRoot = resolved
 	}
 
-	tmpFile, err := os.CreateTemp(opts.InputDir, ".coverage.remapped-*")
+	// Use the system temp dir, not InputDir: when `collect` ran in a container, the collected
+	// directory is owned by the container user and is not writable by the host user running
+	// `process`.
+	tmpFile, err := os.CreateTemp("", ".coverage.remapped-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp remapped coverage file: %w", err)
 	}
@@ -411,22 +414,25 @@ raw = open(raw_path, "rb").read()
 data = CoverageData(no_disk=True)
 data.loads(raw)
 
-remapped = CoverageData(no_disk=True)
+# Write remapped measurements straight into the on-disk database. CoverageData.update()
+# cannot read from a no_disk source: it ATTACHes the source by filename, and an in-memory
+# source reports ":memory:", which attaches a new empty database instead.
+db = CoverageData(basename=sqlite_path)
+has_arcs = data.has_arcs()
 for fn in data.measured_files():
     local_fn = fn
     for prefix in prefixes:
         if fn.startswith(prefix):
             local_fn = repo_root + "/" + fn[len(prefix):]
             break
-    lines = data.lines(fn)
-    if lines:
-        remapped.add_lines({local_fn: lines})
-    arcs = data.arcs(fn)
-    if arcs:
-        remapped.add_arcs({local_fn: arcs})
-
-db = CoverageData(basename=sqlite_path)
-db.update(remapped)
+    if has_arcs:
+        arcs = data.arcs(fn)
+        if arcs:
+            db.add_arcs({local_fn: arcs})
+    else:
+        lines = data.lines(fn)
+        if lines:
+            db.add_lines({local_fn: lines})
 db.write()
 
 cov = Coverage(data_file=sqlite_path)
@@ -436,6 +442,10 @@ cov.xml_report(outfile=xml_path)
 
 	fmt.Println("   Converting serialized coverage to XML format...")
 	cmd := exec.CommandContext(ctx, pythonPath, "-c", pythonScript, repoRoot, prefixesArg, absCoverageFile, absOutputFile, sqlitePath)
+	// Run from the repo root so coverage.py reports paths relative to it. Otherwise the XML
+	// carries absolute workspace paths and an empty <source>, which Codecov cannot map to
+	// repository files. All other paths passed to the script are absolute.
+	cmd.Dir = repoRoot
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		_ = os.Remove(sqlitePath)

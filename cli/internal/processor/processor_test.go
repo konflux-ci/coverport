@@ -325,7 +325,7 @@ func TestReadNYCCoverage(t *testing.T) {
 	coverageData := NYCCoverageData{
 		"/app/src/index.js": &NYCFileCoverage{
 			Path: "/app/src/index.js",
-			StatementMap: map[string]NYCLocation{
+			StatementMap: map[string]*NYCLocation{
 				"0": {Start: NYCPosition{Line: 1, Column: 0}, End: NYCPosition{Line: 1, Column: 20}},
 			},
 			S: map[string]int{"0": 5},
@@ -491,14 +491,14 @@ func TestGenerateLCOV(t *testing.T) {
 	coverageData := NYCCoverageData{
 		"src/index.js": &NYCFileCoverage{
 			Path: "src/index.js",
-			StatementMap: map[string]NYCLocation{
+			StatementMap: map[string]*NYCLocation{
 				"0": {Start: NYCPosition{Line: 1, Column: 0}, End: NYCPosition{Line: 1, Column: 20}},
 				"1": {Start: NYCPosition{Line: 2, Column: 0}, End: NYCPosition{Line: 2, Column: 30}},
 			},
-			FnMap: map[string]NYCFunctionInfo{
+			FnMap: map[string]*NYCFunctionInfo{
 				"0": {Name: "main", Line: 1, Loc: NYCLocation{Start: NYCPosition{Line: 1, Column: 0}, End: NYCPosition{Line: 5, Column: 1}}},
 			},
-			BranchMap: map[string]NYCBranchInfo{},
+			BranchMap: map[string]*NYCBranchInfo{},
 			S:         map[string]int{"0": 3, "1": 0},
 			F:         map[string]int{"0": 1},
 			B:         map[string][]int{},
@@ -645,8 +645,93 @@ func TestProcessSerializedPythonCoverage(t *testing.T) {
 			if !strings.Contains(content, tt.filename) {
 				t.Errorf("coverage.xml should contain %s, got: %s", tt.filename, content)
 			}
+			// Codecov maps files via <source> + a repo-relative filename. An absolute
+			// workspace path with an empty <source> cannot be matched to the repository.
+			if strings.Contains(content, "<source></source>") {
+				t.Errorf("coverage.xml should declare a source root, got: %s", content)
+			}
+			wantFilename := fmt.Sprintf("filename=%q", filepath.Join(tt.repoSubdir, tt.filename))
+			if !strings.Contains(content, wantFilename) {
+				t.Errorf("coverage.xml should use repo-relative %s, got: %s", wantFilename, content)
+			}
 		})
 	}
+
+	t.Run("branch coverage data", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repoRoot := filepath.Join(tmpDir, "repo")
+		srcDir := filepath.Join(repoRoot, "src")
+		if err := os.MkdirAll(srcDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "main.py"), []byte("x = 1\nif x:\n    x = 2\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		inputDir := filepath.Join(tmpDir, "input")
+		coverageFile := writeSerializedArcsCoverageFixture(t, pythonPath, inputDir, "/app/src/main.py")
+		outputFile := filepath.Join(inputDir, "coverage.xml")
+		proc := NewCoverageProcessor(FormatPython)
+		if err := proc.Process(context.Background(), ProcessOptions{
+			Format:     FormatPython,
+			InputDir:   filepath.Dir(coverageFile),
+			OutputFile: outputFile,
+			RepoRoot:   repoRoot,
+		}); err != nil {
+			t.Fatalf("Process failed: %v", err)
+		}
+
+		xmlData, err := os.ReadFile(outputFile)
+		if err != nil {
+			t.Fatalf("coverage.xml not created: %v", err)
+		}
+		content := string(xmlData)
+		if strings.Contains(content, "/app/") {
+			t.Errorf("coverage.xml should not contain container prefix, got: %s", content)
+		}
+		if !strings.Contains(content, "main.py") {
+			t.Errorf("coverage.xml should contain main.py, got: %s", content)
+		}
+	})
+
+	t.Run("read-only input dir", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("running as root bypasses directory permissions")
+		}
+		tmpDir := t.TempDir()
+		repoRoot := filepath.Join(tmpDir, "repo")
+		srcDir := filepath.Join(repoRoot, "src")
+		if err := os.MkdirAll(srcDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "main.py"), []byte("x=1\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		inputDir := filepath.Join(tmpDir, "input")
+		writeSerializedCoverageFixture(t, pythonPath, inputDir, "/app/src/main.py", []int{1})
+		outputDir := filepath.Join(tmpDir, "out")
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Mimic `collect` running in a container: the collected directory is owned by the
+		// container user, so the user running `process` cannot write into it.
+		if err := os.Chmod(inputDir, 0555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(inputDir, 0755) })
+
+		proc := NewCoverageProcessor(FormatPython)
+		if err := proc.Process(context.Background(), ProcessOptions{
+			Format:     FormatPython,
+			InputDir:   inputDir,
+			OutputFile: filepath.Join(outputDir, "coverage.xml"),
+			RepoRoot:   repoRoot,
+		}); err != nil {
+			t.Fatalf("Process failed on read-only input dir: %v", err)
+		}
+	})
 
 	t.Run("generate HTML", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -791,12 +876,12 @@ sys.stdout.buffer.write(data.dumps())
 func TestGenerateLCOVBranchCountsFollowTheirBranch(t *testing.T) {
 	// Twelve branches on lines 10, 20, ... with two locations each. Branch k
 	// has counts {k, 100+k}, so a count attached to the wrong branch shows.
-	branchMap := map[string]NYCBranchInfo{}
+	branchMap := map[string]*NYCBranchInfo{}
 	counts := map[string][]int{}
 	loc := NYCLocation{Start: NYCPosition{Line: 1}, End: NYCPosition{Line: 1}}
 	for k := 0; k < 12; k++ {
 		key := strconv.Itoa(k)
-		branchMap[key] = NYCBranchInfo{Type: "if", Line: (k + 1) * 10, Locations: []NYCLocation{loc, loc}}
+		branchMap[key] = &NYCBranchInfo{Type: "if", Line: (k + 1) * 10, Locations: []NYCLocation{loc, loc}}
 		counts[key] = []int{k, 100 + k}
 	}
 	coverageData := NYCCoverageData{
@@ -842,4 +927,29 @@ func TestSortedIstanbulKeys(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("sortedIstanbulKeys = %v, want %v", got, want)
 	}
+}
+
+// writeSerializedArcsCoverageFixture builds branch (arc) measurements rather than plain
+// line measurements, exercising the has_arcs() path of the serialized Python converter.
+func writeSerializedArcsCoverageFixture(t *testing.T, pythonPath, dir, filePath string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	createFixture := exec.Command(pythonPath, "-c", fmt.Sprintf(`
+import sys
+from coverage import CoverageData
+data = CoverageData(no_disk=True)
+data.add_arcs({%q: [(-1, 1), (1, 2), (2, 3), (3, -1)]})
+sys.stdout.buffer.write(data.dumps())
+`, filePath))
+	fixtureData, err := createFixture.Output()
+	if err != nil {
+		t.Fatalf("failed to create serialized arcs fixture: %v", err)
+	}
+	coverageFile := filepath.Join(dir, ".coverage")
+	if err := os.WriteFile(coverageFile, fixtureData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return coverageFile
 }

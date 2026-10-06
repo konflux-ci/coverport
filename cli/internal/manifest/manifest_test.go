@@ -63,6 +63,7 @@ func TestSaveAndLoad(t *testing.T) {
 		Name:          "frontend",
 		Image:         "quay.io/org/fe:v1",
 		CoverageDir:   "frontend/coverage-test",
+		Format:        "nyc",
 		Namespace:     "my-ns",
 		PodName:       "fe-pod-abc",
 		ContainerName: "frontend",
@@ -72,6 +73,7 @@ func TestSaveAndLoad(t *testing.T) {
 		Name:          "backend",
 		Image:         "quay.io/org/be:v2",
 		CoverageDir:   "backend/coverage-test",
+		Format:        "go",
 		Namespace:     "my-ns",
 		PodName:       "be-pod-xyz",
 		ContainerName: "backend",
@@ -120,6 +122,9 @@ func TestSaveAndLoad(t *testing.T) {
 		}
 		if comp.CoverageDir != orig.CoverageDir {
 			t.Errorf("component[%d] coverage dir: got %q, want %q", i, comp.CoverageDir, orig.CoverageDir)
+		}
+		if comp.Format != orig.Format {
+			t.Errorf("component[%d] format: got %q, want %q", i, comp.Format, orig.Format)
 		}
 		if comp.PodName != orig.PodName {
 			t.Errorf("component[%d] pod name: got %q, want %q", i, comp.PodName, orig.PodName)

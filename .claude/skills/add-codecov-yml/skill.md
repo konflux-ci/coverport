@@ -69,6 +69,7 @@ Parse the existing file and run both checks. Report results to the user:
 - **`codecov.require_ci_to_pass`** — if set to `true`, keep it `true`
 - **`ignore:`** — excluded paths (generated files, mocks, vendor dirs, test data)
 - **`flags:`** — flag definitions with `carryforward: true` and `paths` filters
+- **`flag_management:`** — global flag rules including `carryforward: true`
 - **YAML comments** — inline comments (`# generated file`), section comments (`# Allows coverage to drop...`), and documentation links (`# Documentation: https://...`)
 - **File-level comments** — license headers (e.g. ASF/Apache headers) at the top of the file
 
@@ -94,10 +95,25 @@ coverage:
         target: <patch_target>
         informational: true
 
+# Carry forward coverage from previous successful uploads when a flag's
+# report is missing (e.g. a CI test suite failed and skipped uploading).
+# This prevents patch coverage from dropping drastically due to incomplete data.
+# IMPORTANT: carryforward only works when uploads use Codecov flags
+# (e.g. flags: unit-tests in codecov-action, or --flag unit-tests in codecov-cli).
+flag_management:
+  default_rules:
+    carryforward: true
+
 comment:
   layout: "reach,diff,flags,files,footer"
   require_changes: true
 ```
+
+**Note on carryforward equivalence:** `flag_management.default_rules.carryforward: true`
+and per-flag `carryforward: true` (under `flags:`) achieve the same effect for listed flags.
+The `flag_management` block is preferred for new configs because it automatically applies to
+any flags added later. If a repository already has `carryforward: true` on every individual
+flag, no additional `flag_management` block is needed — do not add a redundant one.
 
 Replace `<project_target>`, `<project_threshold>`, `<patch_target>`, `<patch_threshold>` with the actual values.
 
