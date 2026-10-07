@@ -45,8 +45,14 @@ test/fixtures/python/
 ├── wsgi.py             # Flask WSGI entry for the container fixture
 ├── test_app.py         # Pattern D pytest
 ├── requirements.txt    # pytest / pytest-cov (Pattern D only)
-└── Dockerfile          # Gunicorn + instrumentation/python/
+├── Dockerfile          # Gunicorn + instrumentation/python/
+└── PATTERN-B-FIXTURE.md
 ```
+
+Pattern B (`collect --url` → `process --format=python`) has **no in-repo fixture** and
+is not covered by `test/e2e`. See
+[python/PATTERN-B-FIXTURE.md](python/PATTERN-B-FIXTURE.md) for the gaps in the external
+fixture used to validate it manually, and what an in-repo fixture would need.
 
 ## Building and pushing (container fixtures)
 
