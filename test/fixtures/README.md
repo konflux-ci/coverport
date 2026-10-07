@@ -10,6 +10,7 @@ onboarding patterns.
 | Go | `quay.io/konflux-ci/konflux-devprod/coverport-testapp-go` | `go build -cover` + `instrumentation/go/coverage_server.go` |
 | Rust | `quay.io/konflux-ci/konflux-devprod/coverport-testapp-rust` | LLVM profraw + `instrumentation/rust/` crate |
 | Node.js | `quay.io/konflux-ci/konflux-devprod/coverport-testapp-nodejs` | V8 inspector + Istanbul JSON via `instrumentation/nodejs/coverage_server.js` |
+| Python | `quay.io/konflux-ci/konflux-devprod/coverport-testapp-python` | Gunicorn + `instrumentation/python/` (`coverage_server.py`, sitecustomize, `.coveragerc`) |
 
 Each image exposes:
 - Port **8080** — app endpoint (`/hello?name=...`)
@@ -27,19 +28,26 @@ feed existing Istanbul/NYC JSON to `coverport process --format=nyc`.
 The Kind image `coverport-testapp-nodejs` is used by `TestCollectNodejs` for the
 HTTP path and by `TestProcessNodejsFilesystem` for Pattern C.
 
-## Python (Pattern D — pytest-cov, no container)
+## Python (Kind/HTTP and Pattern D)
 
-Python follows Pattern D: run `pytest` with `--cov` against source and upload
-the XML report. No instrumented container and no coverport `collect`/`process`.
+Python has two e2e paths:
+
+1. **Kind/HTTP container** — Gunicorn Flask app (`wsgi.py`) with
+   `instrumentation/python/`. Covered by `TestCollectPython` /
+   `TestProcessPython` (`coverport collect` → `coverport process --format python`).
+2. **Pattern D (pytest-cov)** — run `pytest` with `--cov` against source and
+   upload the XML report. No Kind pod and no coverport `collect`/`process`.
+   Covered by `TestPythonPytestCov`.
 
 ```
 test/fixtures/python/
-├── app.py
-├── test_app.py
-└── requirements.txt
+├── app.py              # shared greet() used by pytest and the Flask app
+├── wsgi.py             # Flask WSGI entry for the container fixture
+├── test_app.py         # Pattern D pytest
+├── requirements.txt    # pytest / pytest-cov (Pattern D only)
+├── Dockerfile          # Gunicorn + instrumentation/python/
+└── PATTERN-B-FIXTURE.md
 ```
-
-Covered by `TestPythonPytestCov` in `test/e2e`.
 
 Pattern B (`collect --url` → `process --format=python`) has **no in-repo fixture** and
 is not covered by `test/e2e`. See
@@ -65,6 +73,18 @@ podman push quay.io/konflux-ci/konflux-devprod/coverport-testapp-nodejs:latest
 # Rust
 podman build -f test/fixtures/rust/Dockerfile -t quay.io/konflux-ci/konflux-devprod/coverport-testapp-rust:latest .
 podman push quay.io/konflux-ci/konflux-devprod/coverport-testapp-rust:latest
+
+# Python
+podman build -f test/fixtures/python/Dockerfile -t quay.io/konflux-ci/konflux-devprod/coverport-testapp-python:latest .
+podman push quay.io/konflux-ci/konflux-devprod/coverport-testapp-python:latest
+```
+
+If Quay credentials are unavailable, build and load locally instead:
+
+```bash
+podman build -f test/fixtures/python/Dockerfile -t quay.io/konflux-ci/konflux-devprod/coverport-testapp-python:latest .
+kind load docker-image quay.io/konflux-ci/konflux-devprod/coverport-testapp-python:latest
+# or: kind load image-archive <(podman save ...)
 ```
 
 ## When to rebuild
@@ -86,6 +106,13 @@ podman run --rm -p 8080:8080 -p 53700:53700 quay.io/konflux-ci/konflux-devprod/c
 curl http://localhost:8080/hello?name=test
 
 # Collect coverage
+curl http://localhost:53700/coverage
+
+# Python container fixture
+podman run --rm -p 8080:8080 -p 53700:53700 quay.io/konflux-ci/konflux-devprod/coverport-testapp-python:latest
+curl http://localhost:8080/hello?name=test
+curl http://localhost:53700/health
+curl http://localhost:53700/coverage/save
 curl http://localhost:53700/coverage
 
 # Python Pattern D (no container)
