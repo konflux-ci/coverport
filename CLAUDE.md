@@ -82,15 +82,15 @@ cd cli && make docker-build
 - **Node.js**: HTTP collection via `TestCollectNodejs` plus Pattern C through
   `TestProcessNodejsFilesystem` (`process --format=nyc`). Uses `coverport-testapp-nodejs`.
 - **Python**: Kind pods + HTTP `collect`/`process` via `TestCollectPython`
-  and `TestProcessPython` (Pattern B). Image:
-  `quay.io/konflux-ci/konflux-devprod/coverport-testapp-python`
+  and `TestProcessPython`. Image:
+  `quay.io/konflux-ci/konflux-devprod/coverport-testapp-python`.
   (Dockerfile at `test/fixtures/python/Dockerfile`, Flask WSGI entry point
   `test/fixtures/python/wsgi.py`). Pattern D is also tested via
   `TestPythonPytestCov` (`pytest --cov` on `test/fixtures/python/`).
-  Pattern B is fully CLI-supported: `collect --url` normalizes bare
-  host:port URLs and auto-triggers `/coverage/save`, then
-  `process --format=python` converts the serialized `.coverage` to
-  Cobertura XML.
+  Pattern B (`collect --url`) is fully CLI-supported but has no in-repo
+  fixture or e2e test: `collect --url` normalizes bare host:port URLs
+  and auto-triggers `/coverage/save`, then `process --format=python`
+  converts the serialized `.coverage` to Cobertura XML.
   Note `process --format=python` shells out to `python3` with `coverage`
   importable, so it cannot run inside the coverport-cli image (no Python).
 - Fixture rebuild/push instructions: `test/fixtures/README.md`.
