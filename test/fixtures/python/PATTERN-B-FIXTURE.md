@@ -15,7 +15,7 @@ Pattern B has **no in-repo fixture image** and is **not covered by
 | Pattern | Coverage | Fixture |
 |---------|----------|---------|
 | D (pytest-cov) | `TestPythonPytestCov` | `test/fixtures/python/` (app.py, test_app.py) |
-| A (Kind HTTP) | **None** (instrumentation files exist but no fixture image or e2e test) | `instrumentation/python/` (server files only, no test image) |
+| A (Kind HTTP) | `TestCollectPython` / `TestProcessPython` | `test/fixtures/python/` (Dockerfile, wsgi.py, app.py) + `instrumentation/python/` |
 | B (local `--url`) | **None** | **None** |
 
 Pattern B was validated manually against an external application (not
