@@ -38,6 +38,7 @@ type ProcessOptions struct {
 	RepoRoot     string   // Repository root for path mapping
 	Filters      []string // File patterns to exclude
 	GenerateHTML bool     // Generate HTML coverage report
+	TempDir      string   // Directory for temporary files
 }
 
 // NewCoverageProcessor creates a new coverage processor
@@ -392,7 +393,7 @@ func (p *CoverageProcessor) processSerializedPythonCoverage(ctx context.Context,
 	// Use the system temp dir, not InputDir: when `collect` ran in a container, the collected
 	// directory is owned by the container user and is not writable by the host user running
 	// `process`.
-	tmpFile, err := os.CreateTemp("", ".coverage.remapped-*")
+	tmpFile, err := os.CreateTemp(opts.TempDir, ".coverage.remapped-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp remapped coverage file: %w", err)
 	}
