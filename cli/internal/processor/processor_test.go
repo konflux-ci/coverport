@@ -815,6 +815,7 @@ func TestProcessSerializedPythonCoverageDirect(t *testing.T) {
 			InputDir:   tmpDir,
 			OutputFile: outputFile,
 			RepoRoot:   tmpDir,
+			TempDir:    tmpDir, // so cleanup is observable here, not only under os.TempDir (#157)
 		}, rawPath, outputFile, pythonPath)
 		if err == nil {
 			t.Fatal("expected error for invalid serialized coverage data")
