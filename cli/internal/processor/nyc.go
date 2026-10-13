@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/konflux-ci/coverport/cli/internal/istanbul"
@@ -306,17 +308,18 @@ func generateLCOV(coverageData NYCCoverageData, outputPath string) error {
 		}
 		lcov.WriteString(fmt.Sprintf("LH:%d\n", lh))
 
-		// Branch coverage
-		branchID := 0
-		for _, branchInfo := range fileCoverage.BranchMap {
+		// Branch coverage. B is keyed like BranchMap, so look the counts up
+		// by the same key; walk the keys in order so the output is stable.
+		for branchID, key := range sortedIstanbulKeys(fileCoverage.BranchMap) {
+			branchInfo := fileCoverage.BranchMap[key]
+			branchCounts := fileCoverage.B[key]
 			for i := range branchInfo.Locations {
 				count := 0
-				if branchCounts, ok := fileCoverage.B[fmt.Sprintf("%d", branchID)]; ok && i < len(branchCounts) {
+				if i < len(branchCounts) {
 					count = branchCounts[i]
 				}
 				lcov.WriteString(fmt.Sprintf("BRDA:%d,%d,%d,%d\n", branchInfo.Line, branchID, i, count))
 			}
-			branchID++
 		}
 
 		totalBranches := 0
@@ -336,6 +339,25 @@ func generateLCOV(coverageData NYCCoverageData, outputPath string) error {
 	}
 
 	return os.WriteFile(outputPath, []byte(lcov.String()), 0644)
+}
+
+// sortedIstanbulKeys returns the keys of an Istanbul map ("0", "1", ...,
+// "10", ...) in numeric order, falling back to string order for any key that
+// is not a number.
+func sortedIstanbulKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, errA := strconv.Atoi(keys[i])
+		b, errB := strconv.Atoi(keys[j])
+		if errA == nil && errB == nil {
+			return a < b
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
 }
 
 // showNYCCoverageSummary displays a summary of the NYC coverage
