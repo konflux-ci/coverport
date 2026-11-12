@@ -34,8 +34,8 @@ func TestFindProfrawFiles(t *testing.T) {
 			files: map[string]string{
 				"default_12345.profraw": "profraw",
 				"coverage.profdata":     "profdata",
-				"binary":               "elf",
-				"report.lcov":          "lcov",
+				"binary":                "elf",
+				"report.lcov":           "lcov",
 			},
 			expectedCount: 1,
 		},
@@ -48,7 +48,7 @@ func TestFindProfrawFiles(t *testing.T) {
 			name: "no profraw files",
 			files: map[string]string{
 				"coverage.profdata": "profdata",
-				"report.lcov":      "lcov",
+				"report.lcov":       "lcov",
 			},
 			expectedCount: 0,
 		},

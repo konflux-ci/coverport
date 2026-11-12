@@ -70,12 +70,13 @@ func fixtureImage(lang string) string {
 }
 
 // Kind/HTTP coverport targets (container instrumentation).
-// Python: Pattern D (pytest-cov) — see TestPythonPytestCov.
+// Python also has Pattern D (pytest-cov) — see TestPythonPytestCov.
 // Node.js supports both Kind/HTTP collect and Pattern C NYC filesystem process.
 var (
 	goFixture     = langFixture{image: fixtureImage("go"), format: "go"}
 	rustFixture   = langFixture{image: fixtureImage("rust"), format: "rust"}
 	nodejsFixture = langFixture{image: fixtureImage("nodejs"), format: "nyc"}
+	pythonFixture = langFixture{image: fixtureImage("python"), format: "python"}
 )
 
 func fixtureNamespace(testPrefix, lang string) string {
@@ -330,6 +331,10 @@ func TestCollectRust(t *testing.T) {
 	collectFromLanguage(t, "rust", rustFixture)
 }
 
+func TestCollectPython(t *testing.T) {
+	collectFromLanguage(t, "python", pythonFixture)
+}
+
 func TestCollectNodejs(t *testing.T) {
 	outputDir := collectFromLanguage(t, "nodejs", nodejsFixture)
 	metadataPath := filepath.Join(outputDir, "metadata.json")
@@ -508,6 +513,46 @@ func TestCollectMultipleLanguages(t *testing.T) {
 
 func TestProcessGo(t *testing.T) {
 	processLanguage(t, "go", goFixture, nil)
+}
+
+func TestProcessPython(t *testing.T) {
+	// Seed fixture sources into the --skip-clone workspace so coverage.py can
+	// resolve remapped /app/*.py paths when converting serialized .coverage → XML.
+	processLanguage(t, "python", pythonFixture, seedPythonProcessSources)
+}
+
+func seedPythonProcessSources(t *testing.T, cmd *exec.Cmd, _ langFixture) {
+	t.Helper()
+	workspace := ""
+	for i, arg := range cmd.Args {
+		if arg == "--workspace" && i+1 < len(cmd.Args) {
+			workspace = cmd.Args[i+1]
+			break
+		}
+	}
+	if workspace == "" {
+		t.Fatal("process command missing --workspace")
+	}
+
+	fixtureDir, err := filepath.Abs("../fixtures/python")
+	if err != nil {
+		t.Fatalf("resolve python fixture dir: %v", err)
+	}
+	repoDir := filepath.Join(workspace, "testapp-python", "repo")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatalf("create python process repo dir: %v", err)
+	}
+	for _, name := range []string{"app.py", "wsgi.py"} {
+		src := filepath.Join(fixtureDir, name)
+		dst := filepath.Join(repoDir, name)
+		data, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatalf("read %s: %v", src, err)
+		}
+		if err := os.WriteFile(dst, data, 0644); err != nil {
+			t.Fatalf("write %s: %v", dst, err)
+		}
+	}
 }
 
 func TestProcessRust(t *testing.T) {

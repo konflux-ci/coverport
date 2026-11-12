@@ -56,7 +56,7 @@ jobs:
 
       - name: Pull fixture images and load into Kind
         run: |
-          for lang in go nodejs rust; do
+          for lang in go nodejs rust python; do
             docker pull quay.io/konflux-ci/konflux-devprod/coverport-testapp-${lang}:latest
             kind load docker-image quay.io/konflux-ci/konflux-devprod/coverport-testapp-${lang}:latest \
               --name coverport-e2e

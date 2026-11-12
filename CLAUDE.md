@@ -82,9 +82,14 @@ cd cli && make docker-build
 - **Node.js**: HTTP collection via `TestCollectNodejs` plus Pattern C through
   `TestProcessNodejsFilesystem` (`process --format=nyc`). Uses `coverport-testapp-nodejs`.
 - **Python**: Pattern D (`TestPythonPytestCov` — `pytest --cov` on
-  `test/fixtures/python/`) and container HTTP collection (Patterns A/B) via
-  `instrumentation/python/`; Kind + `collect` for container path, local
-  `collect --url` for Pattern B (see skill + COVERPORT-362 for CLI gaps).
+  `test/fixtures/python/`). Instrumentation files for Patterns A/B exist in
+  `instrumentation/python/` but have no fixture image, no Dockerfile, and
+  no e2e test — only Pattern D is tested. Pattern B is fully CLI-supported:
+  `collect --url` normalizes bare host:port URLs and auto-triggers
+  `/coverage/save`, then `process --format=python` converts the serialized
+  `.coverage` to Cobertura XML.
+  Note `process --format=python` shells out to `python3` with `coverage` importable,
+  so it cannot run inside the coverport-cli image (no Python).
 - Fixture rebuild/push instructions: `test/fixtures/README.md`.
 
 ## Design Choices
