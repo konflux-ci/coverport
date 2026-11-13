@@ -152,16 +152,19 @@ class TestRepoUrl(unittest.TestCase):
         row = {"URL": "", "Repository": "repo"}
         self.assertEqual(dry_run._repo_url(row, "myorg"), "https://github.com/myorg/repo")
 
-    def test_gitlab_fallback_warning_fires_for_gitlab_ci_row(self):
-        # PR #144 fixed the dead-code bug from issue #111: _codecov_provider
-        # now inspects the CI System column, so a GitLab-CI row with an empty
-        # URL reaches the warning branch instead of silently falling back.
+    def test_gitlab_ci_system_fallback_triggers_warning(self):
+        # PR #144 fixed the dead-code bug from issue #111: _codecov_provider()
+        # now also checks the CI System column, so the GitLab fallback warning
+        # in _repo_url correctly fires for GitLab CI rows with empty URLs.
         row = {"URL": "", "Repository": "repo", "CI System": "GitLab CI"}
         buf = io.StringIO()
         with redirect_stdout(buf):
             result = dry_run._repo_url(row, "myorg")
+        # Still falls back to GitHub URL (no GitLab URL to construct without a URL column)
         self.assertEqual(result, "https://github.com/myorg/repo")
+        # But now the warning fires to alert the user
         self.assertIn("WARNING", buf.getvalue())
+        self.assertIn("falling back to GitHub URL", buf.getvalue())
 
 
 if __name__ == "__main__":

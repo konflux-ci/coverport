@@ -85,7 +85,8 @@ Many of these will already be in the user's message — extract what you can and
    - Extract the repo name from URLs (last path segment) and pass to `--repos`
 8. **Codecov instance URL** (optional) — if using a self-hosted or staging Codecov instance
    instead of `app.codecov.io`, pass via `--codecov-url`. The provider prefix (`/gh/` vs `/gl/`)
-   is auto-detected from repo URLs in the CSV (GitLab repos get `/gl/`, GitHub repos get `/gh/`).
+   is auto-detected from repo URLs in the CSV, with a fallback to the `CI System` column
+   for rows with empty URLs (GitLab CI rows get `/gl/`, all others get `/gh/`).
 
 ### Step 1b: Check Jira Credentials
 
@@ -332,7 +333,9 @@ Usage: python scripts/dry-run.py \
 Notes:
   - If the CSV has a URL column, repo links use those URLs directly
     (instead of constructing https://github.com/{org}/{repo})
-  - Provider prefix (/gh/ vs /gl/) is auto-detected from repo URLs
+  - Provider prefix (/gh/ vs /gl/) is auto-detected from repo URLs,
+    falling back to the CI System column for rows with empty URLs
+    (GitLab CI rows get /gl/, all others get /gh/)
   - --codecov-url sets a custom Codecov base URL (adds --url flag
     to CLI upload commands in generated tasks)
 
