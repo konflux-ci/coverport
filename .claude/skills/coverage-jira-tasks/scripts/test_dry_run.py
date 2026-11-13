@@ -43,6 +43,61 @@ class TestCodecovProvider(unittest.TestCase):
     def test_detection_is_case_insensitive(self):
         self.assertEqual(dry_run._codecov_provider({"URL": "https://GitLab.com/g/r"}), "gl")
 
+    # --- CI System column fallback (issue #178 / PR #144) ---
+    # When the URL column is empty, _codecov_provider also inspects the
+    # CI System column, so GitLab rows without a URL still route to 'gl'.
+
+    def test_ci_system_gitlab_with_empty_url_returns_gl(self):
+        """CI System fallback: empty URL + GitLab CI -> gl (PR #144 path)."""
+        self.assertEqual(
+            dry_run._codecov_provider({"URL": "", "CI System": "GitLab CI"}), "gl"
+        )
+
+    def test_ci_system_github_actions_with_empty_url_returns_gh(self):
+        self.assertEqual(
+            dry_run._codecov_provider({"URL": "", "CI System": "GitHub Actions"}), "gh"
+        )
+
+    def test_missing_ci_system_column_with_empty_url_returns_gh(self):
+        self.assertEqual(dry_run._codecov_provider({"URL": ""}), "gh")
+        self.assertEqual(dry_run._codecov_provider({}), "gh")
+
+    def test_populated_gitlab_url_returns_gl(self):
+        self.assertEqual(
+            dry_run._codecov_provider({"URL": "https://gitlab.com/group/repo"}), "gl"
+        )
+
+    def test_populated_non_gitlab_url_returns_gh(self):
+        self.assertEqual(
+            dry_run._codecov_provider({"URL": "https://github.com/org/repo"}), "gh"
+        )
+
+    def test_url_takes_precedence_over_ci_system(self):
+        """A gitlab URL returns 'gl' regardless of CI System.
+
+        The CI System check only runs when the URL does not already identify
+        GitLab; a non-gitlab URL with a GitLab CI System still falls back to
+        'gl' (that fallback is the whole point of PR #144).
+        """
+        self.assertEqual(
+            dry_run._codecov_provider(
+                {"URL": "https://gitlab.com/group/repo", "CI System": "GitHub Actions"}
+            ),
+            "gl",
+        )
+        self.assertEqual(
+            dry_run._codecov_provider(
+                {"URL": "https://github.com/org/repo", "CI System": "GitLab CI"}
+            ),
+            "gl",
+        )
+        self.assertEqual(
+            dry_run._codecov_provider(
+                {"URL": "https://github.com/org/repo", "CI System": "GitHub Actions"}
+            ),
+            "gh",
+        )
+
 
 class TestCodecovRepoPath(unittest.TestCase):
     def test_github_url(self):
@@ -97,18 +152,16 @@ class TestRepoUrl(unittest.TestCase):
         row = {"URL": "", "Repository": "repo"}
         self.assertEqual(dry_run._repo_url(row, "myorg"), "https://github.com/myorg/repo")
 
-    def test_gitlab_fallback_warning_is_currently_unreachable(self):
-        # Documents the dead-code bug tracked in issue #111: the GitLab warning
-        # branch in _repo_url is guarded by _codecov_provider(row) == "gl", but
-        # provider detection only inspects the URL column — which is guaranteed
-        # empty at the point the warning would fire. So a GitLab-CI repo with no
-        # URL silently falls back to a GitHub link and NO warning is printed.
+    def test_gitlab_fallback_warning_fires_for_gitlab_ci_row(self):
+        # PR #144 fixed the dead-code bug from issue #111: _codecov_provider
+        # now inspects the CI System column, so a GitLab-CI row with an empty
+        # URL reaches the warning branch instead of silently falling back.
         row = {"URL": "", "Repository": "repo", "CI System": "GitLab CI"}
         buf = io.StringIO()
         with redirect_stdout(buf):
             result = dry_run._repo_url(row, "myorg")
         self.assertEqual(result, "https://github.com/myorg/repo")
-        self.assertEqual(buf.getvalue(), "", "warning unexpectedly fired; update this test if #111 is fixed")
+        self.assertIn("WARNING", buf.getvalue())
 
 
 if __name__ == "__main__":
