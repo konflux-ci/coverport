@@ -6,7 +6,12 @@
 # Store data in /dev/shm (shared memory filesystem)
 # This is ALWAYS writable in Linux containers, even with readOnlyRootFilesystem!
 # For local macOS testing, set COVERAGE_DATA_DIR=/tmp/coverage-test
-data_file = /dev/shm/.coverage
+#
+# COVERAGE_DATA_DIR must be honored here, not only by the readers: every
+# consumer (coverage_server.py, and the CLI's in-pod XML script) globs
+# $COVERAGE_DATA_DIR/.coverage*, so a hardcoded path here sends the writers
+# somewhere the readers never look and coverage comes back empty.
+data_file = ${COVERAGE_DATA_DIR-/dev/shm}/.coverage
 
 # Track which source files to measure
 source = /app
