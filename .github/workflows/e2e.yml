@@ -54,12 +54,17 @@ jobs:
         working-directory: cli
         run: go build -cover -o ./coverport-cover .
 
+      # Pull inside the Kind node instead of `kind load docker-image`: on runners
+      # whose Docker uses the containerd image store (ubuntu-26.04, Docker 29),
+      # `docker save` omits the image config blob and the node-side `ctr import`
+      # fails with "content digest ... not found". The host pull is still needed
+      # because the Rust e2e test extracts /testapp with `docker create`/`docker cp`.
       - name: Pull fixture images and load into Kind
         run: |
           for lang in go nodejs rust python; do
             docker pull quay.io/konflux-ci/konflux-devprod/coverport-testapp-${lang}:latest
-            kind load docker-image quay.io/konflux-ci/konflux-devprod/coverport-testapp-${lang}:latest \
-              --name coverport-e2e
+            docker exec coverport-e2e-control-plane \
+              crictl pull quay.io/konflux-ci/konflux-devprod/coverport-testapp-${lang}:latest
           done
 
       - name: Run e2e tests
