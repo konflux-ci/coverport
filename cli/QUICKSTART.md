@@ -45,7 +45,7 @@ coverport discover \
 
 # By container image
 coverport discover \
-  --images=quay.io/myorg/myapp:v1.0.0
+  --images=quay.io/konflux-ci/myapp:v1.0.0
 ```
 
 Expected output:
@@ -57,10 +57,10 @@ Expected output:
 📦 Component: myapp
    • Pod: default/myapp-pod-1
      Container: app
-     Image: quay.io/myorg/myapp:v1.0.0
+     Image: quay.io/konflux-ci/myapp:v1.0.0
    • Pod: default/myapp-pod-2
      Container: app
-     Image: quay.io/myorg/myapp:v1.0.0
+     Image: quay.io/konflux-ci/myapp:v1.0.0
 ```
 
 ## Step 3: Collect Coverage
@@ -79,7 +79,7 @@ coverport collect \
 
 ```bash
 coverport collect \
-  --images=quay.io/myorg/myapp:v1.0.0 \
+  --images=quay.io/konflux-ci/myapp:v1.0.0 \
   --test-name=my-test \
   --output=./coverage-output
 ```
@@ -87,7 +87,7 @@ coverport collect \
 ### Option C: Using Konflux Snapshot (CI/CD)
 
 ```bash
-export SNAPSHOT='{"components":[{"name":"myapp","containerImage":"quay.io/myorg/myapp@sha256:abc123"}]}'
+export SNAPSHOT='{"components":[{"name":"myapp","containerImage":"quay.io/konflux-ci/myapp@sha256:abc123"}]}'
 
 coverport collect \
   --snapshot="$SNAPSHOT" \
@@ -105,7 +105,7 @@ Coverage Port: 53700
 ============================================================
 
 📍 Discovered 1 pod(s) for coverage collection:
-  1. default/myapp-pod-1 (component: myapp, image: quay.io/myorg/myapp:v1.0.0)
+  1. default/myapp-pod-1 (component: myapp, image: quay.io/konflux-ci/myapp:v1.0.0)
 
 📊 Collecting from: default/myapp-pod-1 (component: myapp)
 ✅ Port forward ready: localhost:54321 -> pod:53700
@@ -180,7 +180,7 @@ coverport collect \
 ```yaml
 # In your Tekton task
 - name: collect-coverage
-  image: quay.io/myorg/coverport:latest
+  image: quay.io/konflux-ci/coverport:latest
   env:
     - name: SNAPSHOT
       value: $(params.SNAPSHOT)
@@ -200,7 +200,7 @@ When testing a microservices application:
 
 ```bash
 coverport collect \
-  --images=quay.io/myorg/frontend:latest,quay.io/myorg/backend:latest,quay.io/myorg/worker:latest \
+  --images=quay.io/konflux-ci/frontend:latest,quay.io/konflux-ci/backend:latest,quay.io/konflux-ci/worker:latest \
   --test-name=integration-test \
   --output=./coverage-output
 ```
