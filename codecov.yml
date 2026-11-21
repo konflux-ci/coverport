@@ -35,7 +35,13 @@ ignore:
   - "skills/**"
 
 flags:
-  unit-tests:
+  cli-tests:
+    paths:
+      - cli/
+    carryforward: true
+  instrumentation-tests:
+    paths:
+      - instrumentation/go/
     carryforward: true
   e2e-tests:
     carryforward: true
